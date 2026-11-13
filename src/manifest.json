@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Caption Pip",
+  "homepage_url": "https://github.com/sousa-felipe/caption-pip-extension",
+  "version": "1.0.0",
+  "description": "Watch video with captions using Caption Pip",
+  "icons": {
+    "16": "img/icons/icon16.png",
+    "48": "img/icons/icon48.png",
+    "128": "img/icons/icon128.png"
+  },
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "css": ["content.css"],
+      "js": ["captions.js", "pip.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

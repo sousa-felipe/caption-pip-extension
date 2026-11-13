@@ -1,0 +1,489 @@
+(() => {
+  /* Core */
+  if (window.__cpipLoaded) return;
+  window.__cpipLoaded = true;
+
+  /* Share with captions.js and pip.js */
+  const CPIP = (window.CPIP = window.CPIP || {});
+  CPIP.customSel = "";
+
+  const STORE = "sel:" + location.hostname;
+  const MSG = "caption-pip";
+  const PICK_EVENTS = ["click", "mousedown", "mouseup", "pointerdown", "pointerup"];
+
+  let videos = [];
+  let hoverVideo = null;
+  let hoverFrame = null;
+  let picking = false;
+  const kids = new Map();
+
+  const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+  const isOurs = (el) => !!el.closest?.("#cpip-button,#cpip-pick,#cpip-hint,#cpip-toast,#cpip-hl,.cpip-out");
+  const area = (v) => {
+    const r = v.getBoundingClientRect();
+    return r.width * r.height;
+  };
+
+  /* Pick where to attach elements */
+  function mount() {
+    const f = document.fullscreenElement;
+    return f && f.tagName !== "VIDEO" ? f : document.documentElement;
+  }
+
+  /* Video finder */
+  function collectVideos(root, out) {
+    root.querySelectorAll("video").forEach((v) => out.push(v));
+    root.querySelectorAll("*").forEach((el) => el.shadowRoot && collectVideos(el.shadowRoot, out));
+    return out;
+  }
+
+  function usable(v) {
+    const r = v.getBoundingClientRect();
+    return v.isConnected && r.width >= 160 && r.height >= 90 && v.videoWidth > 0;
+  }
+
+  function refreshVideos() {
+    videos = collectVideos(document, []).filter(usable);
+    if (videos.length) ensureButton();
+    if (videos.length || kids.size) announce();
+  }
+
+  function videoAt(x, y) {
+    return (
+      videos
+        .filter((v) => {
+          const r = v.getBoundingClientRect();
+          return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        })
+        .sort((a, b) => area(b) - area(a))[0] || null
+    );
+  }
+
+  /* Pick playing video, then biggest */
+  function bestVideo() {
+    return [...videos].sort((a, b) => (b.paused ? 0 : 1e9) + area(b) - ((a.paused ? 0 : 1e9) + area(a)))[0] || null;
+  }
+
+  /* Pick video under pointer or best one */
+  const targetVideo = () => (hoverVideo && hoverVideo.isConnected ? hoverVideo : bestVideo());
+
+  /* Create span with text */
+  function span(text, cls) {
+    const s = document.createElement("span");
+    if (cls) s.className = cls;
+    s.textContent = text;
+    return s;
+  }
+
+  /* Get picture area without black bars */
+  function content(v) {
+    const r = v.getBoundingClientRect();
+    const fit = getComputedStyle(v).objectFit;
+    const vw = v.videoWidth;
+    const vh = v.videoHeight;
+    if (!vw || !vh || fit === "fill") return { left: r.left, top: r.top, width: r.width, height: r.height };
+    const k = fit === "cover" ? Math.max(r.width / vw, r.height / vh) : Math.min(r.width / vw, r.height / vh);
+    const w = vw * k;
+    const h = vh * k;
+    return { left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, width: w, height: h };
+  }
+
+  /* Search captions */
+  function playerRoot(v, c) {
+    if (window.top !== window && c.width * c.height > innerWidth * innerHeight * 0.7) return document.body;
+    /* YouTube captions live inside the player */
+    const yt = v.closest(".html5-video-player");
+    if (yt) return yt;
+    let root = v.parentElement || v.getRootNode();
+    let el = v.parentElement;
+    const a = c.width * c.height;
+    while (el && el !== document.body && el !== document.documentElement) {
+      const r = el.getBoundingClientRect();
+      if (r.width * r.height > a * 1.8 || r.width < c.width * 0.95 || r.height < c.height * 0.95) break;
+      root = el;
+      el = el.parentElement;
+    }
+    return root;
+  }
+
+  /* Check element has own text */
+  const hasText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+
+  function toggle() {
+    refreshVideos();
+    if (!CPIP.active() && !videos.length && kids.size) return forward();
+    if (CPIP.active()) CPIP.stop();
+    else CPIP.start(targetVideo());
+  }
+
+  /* Messages */
+  let toastEl = null;
+  let toastTimer = null;
+
+  /* Keep messages centered on player */
+  const pinned = new Map();
+  let pinRaf = 0;
+
+  function placePinned(el, pv) {
+    const r = pv.getBoundingClientRect();
+    const m = mount();
+    const o = m === document.documentElement ? { left: -scrollX, top: -scrollY } : m.getBoundingClientRect();
+    el.style.left = r.left + r.width / 2 - o.left + "px";
+    el.style.top = r.top + r.height / 2 - o.top + "px";
+  }
+
+  function pinLoop() {
+    pinRaf = 0;
+    for (const [el, pv] of pinned) {
+      if (!el.isConnected || !pv.isConnected) pinned.delete(el);
+      else placePinned(el, pv);
+    }
+    if (pinned.size) pinRaf = requestAnimationFrame(pinLoop);
+  }
+
+  function centerOnPlayer(el) {
+    const pv = targetVideo();
+    if (!pv) return;
+    pinned.set(el, pv);
+    placePinned(el, pv);
+    if (!pinRaf) pinRaf = requestAnimationFrame(pinLoop);
+  }
+
+  /* Toasts */
+  function toast(msg, who) {
+    if (!toastEl) {
+      toastEl = document.createElement("div");
+      toastEl.id = "cpip-toast";
+    }
+    if (!toastEl.isConnected) mount().appendChild(toastEl);
+    centerOnPlayer(toastEl);
+    toastEl.replaceChildren(...(who ? [span(who), span("ERROR"), span(msg)] : [span(msg)]));
+    toastEl.classList.add("cpip-show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastEl.classList.remove("cpip-show");
+      pinned.delete(toastEl);
+    }, 2600);
+  }
+
+  /* Frame bridge */
+  function send(win, data) {
+    try {
+      win.postMessage(data, { targetOrigin: "*", includeUserActivation: true });
+    } catch (e) {
+      try {
+        win.postMessage(data, "*");
+      } catch (e2) {}
+    }
+  }
+
+  function announce() {
+    if (window.top === window) return;
+    const on = CPIP.active() || [...kids.values()].some((k) => k.on);
+    send(parent, { [MSG]: "video", has: videos.length > 0 || kids.size > 0, on });
+  }
+
+  /* Find iframe under pointer */
+  function frameAt(x, y) {
+    let best = null;
+    let max = 0;
+    for (const f of document.querySelectorAll("iframe")) {
+      if (!kids.has(f.contentWindow)) continue;
+      const r = f.getBoundingClientRect();
+      const a = r.width * r.height;
+      if (r.width < 160 || r.height < 90 || x < r.left || x > r.right || y < r.top || y > r.bottom || a < max) continue;
+      best = f;
+      max = a;
+    }
+    return best;
+  }
+
+  /* Pass click to player frame */
+  function forward(win) {
+    const w = win || [...kids.keys()][0];
+    if (w) send(w, { [MSG]: "toggle" });
+  }
+
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (!d || typeof d !== "object" || !(MSG in d) || !e.source || e.source === window) return;
+    if (d[MSG] === "video") {
+      if (d.has) kids.set(e.source, { on: !!d.on });
+      else kids.delete(e.source);
+      if (btn) updateButton();
+    } else if (d[MSG] === "toggle" && e.source === parent) {
+      toggle();
+    } else if (d[MSG] === "pick" && e.source === parent) {
+      startPick();
+    }
+  });
+
+  /* Buttons */
+  const ICON =
+    '<svg viewBox="0 0 36 36" aria-hidden="true">' +
+    '<path fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" d="M29 19V12a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v12a4 4 0 0 0 4 4h4"/>' +
+    '<rect x="9" y="13" width="6.5" height="3.2" rx="1" fill="#fff"/>' +
+    '<path fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" d="M23 25.4a3.4 3.4 0 1 0 0 5.2M32.4 25.4a3.4 3.4 0 1 0 0 5.2"/></svg>';
+
+  /* Pick icon */
+  const ICON_PICK =
+    '<svg viewBox="0 0 36 36" aria-hidden="true"><g transform="translate(4.8 5.4) scale(0.78)">' +
+    '<defs><clipPath id="cpip-lens"><circle cx="15" cy="15" r="11.5"/></clipPath></defs>' +
+    '<circle cx="15" cy="15" r="11.5" fill="none" stroke="#fff" stroke-width="3.72"/>' +
+    '<path fill="none" stroke="#fff" stroke-width="3.72" stroke-linecap="round" d="M24 24L31.5 31.5"/>' +
+    '<path clip-path="url(#cpip-lens)" fill="none" stroke="#fff" stroke-width="2.82" stroke-linecap="round" d="M12.53 11.9a4 4 0 1 0 0 6.2M23.53 11.9a4 4 0 1 0 0 6.2"/></g></svg>';
+
+  /* Recreate YouTube default tooltip */
+  const PLUS = '<svg viewBox="0 0 8 8" aria-hidden="true"><path d="M4 1v6M1 4h6" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+  function setTip(b, label, keys) {
+    let t = b.querySelector(".cpip-tip");
+    if (!t) b.appendChild((t = span("", "cpip-tip")));
+    const k = span("", "cpip-keys");
+    keys.forEach((key, i) => {
+      if (i) {
+        const p = span("", "cpip-plus");
+        p.innerHTML = PLUS;
+        k.appendChild(p);
+      }
+      k.appendChild(span(key, "cpip-key"));
+    });
+    t.replaceChildren(span(label), k);
+  }
+
+  let btn = null;
+  let pickBtn = null;
+
+  /* Send click to iframe or handle here */
+  function makeButton(id, icon, onClick) {
+    const b = document.createElement("button");
+    b.id = id;
+    b.innerHTML = icon;
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick(e, hoverFrame && hoverFrame.isConnected && !hoverVideo ? hoverFrame.contentWindow : null);
+    });
+    b.addEventListener("mousedown", (e) => e.stopPropagation());
+    return b;
+  }
+
+  function ensureButton() {
+    if (!btn) {
+      btn = makeButton("cpip-button", ICON, (_, win) => (win ? forward(win) : toggle()));
+      updateButton();
+    }
+    if (!pickBtn) {
+      pickBtn = makeButton("cpip-pick", ICON_PICK, (_, win) => (win ? send(win, { [MSG]: "pick" }) : startPick()));
+      pickBtn.setAttribute("aria-label", "Pick caption (S)");
+      setTip(pickBtn, "Pick caption", ["S"]);
+    }
+    const m = mount();
+    if (btn.parentNode !== m) m.appendChild(btn);
+    if (pickBtn.parentNode !== m) m.appendChild(pickBtn);
+  }
+
+  function updateButton() {
+    announce();
+    if (!btn) return;
+    const on = hoverFrame && hoverFrame.isConnected ? !!(kids.get(hoverFrame.contentWindow) || {}).on : CPIP.active();
+    const label = on ? "Exit caption pip" : "Caption pip";
+    btn.classList.toggle("cpip-on", on);
+    btn.setAttribute("aria-label", label + " (P)");
+    setTip(btn, label, ["P"]);
+  }
+
+  function placeButton(v) {
+    const r = v.getBoundingClientRect();
+    const top = clamp(r.top, 0, innerHeight) + 10 + "px";
+    const right = clamp(r.right, 0, innerWidth) - 10;
+    btn.style.top = pickBtn.style.top = top;
+    pickBtn.style.left = right - 44 + "px";
+    btn.style.left = right - 44 - 48 + "px";
+  }
+
+  const hideButton = () => [btn, pickBtn].forEach((b) => b && b.classList.remove("cpip-show"));
+
+  /* Check hot zone, top right of video */
+  function inHotzone(el, x, y) {
+    const r = el.getBoundingClientRect();
+    const top = clamp(r.top, 0, innerHeight);
+    const right = clamp(r.right, 0, innerWidth);
+    return x >= right - 180 && x <= right && y >= top && y <= top + 80;
+  }
+
+  let lastMove = 0;
+  window.addEventListener(
+    "mousemove",
+    (e) => {
+      const now = performance.now();
+      if (now - lastMove < 80 || (!videos.length && !kids.size) || picking) return;
+      lastMove = now;
+      const v = videoAt(e.clientX, e.clientY);
+      const f = v ? null : frameAt(e.clientX, e.clientY);
+      if (!v && !f) return hideButton();
+      hoverVideo = v;
+      hoverFrame = f;
+      if (!inHotzone(v || f, e.clientX, e.clientY)) return hideButton();
+      ensureButton();
+      updateButton();
+      placeButton(v || f);
+      [btn, pickBtn].forEach((b) => b.classList.add("cpip-show"));
+    },
+    { capture: true, passive: true }
+  );
+
+  /* Caption picker */
+  let hl = null;
+  let hint = null;
+
+  function cssPath(el) {
+    const parts = [];
+    let n = el;
+    for (let i = 0; n && n.nodeType === 1 && i < 4; i++, n = n.parentElement) {
+      if (n.id && !/\d{4,}/.test(n.id)) {
+        parts.unshift("#" + CSS.escape(n.id));
+        break;
+      }
+      let p = n.tagName.toLowerCase();
+      const cls = [...n.classList].filter((k) => /^[a-z][\w-]{1,32}$/i.test(k) && !/\d{3,}/.test(k)).slice(0, 2);
+      if (cls.length) p += "." + cls.map((k) => CSS.escape(k)).join(".");
+      parts.unshift(p);
+      if (cls.length) {
+        try {
+          const count = document.querySelectorAll(parts.join(" > ")).length;
+          if (count >= 1 && count <= 6) break;
+        } catch (e) {}
+      }
+    }
+    return parts.join(" > ");
+  }
+
+  /* Find text under pointer */
+  function textAt(x, y) {
+    const v = videoAt(x, y);
+    if (!v) return null;
+    const root = playerRoot(v, content(v));
+    let best = null;
+    let bestA = Infinity;
+    for (const el of root.querySelectorAll("*")) {
+      if (isOurs(el) || el === v) continue;
+      if (!hasText(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      if (r.width * r.height < bestA) {
+        best = el;
+        bestA = r.width * r.height;
+      }
+    }
+    return best;
+  }
+
+  const swallow = (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+
+  function onPickMove(e) {
+    const el = textAt(e.clientX, e.clientY);
+    if (!el) return (hl.style.display = "none");
+    const r = el.getBoundingClientRect();
+    hl.style.cssText = `display:block;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+  }
+
+  function onPickClick(e) {
+    swallow(e);
+    const el = textAt(e.clientX, e.clientY);
+    if (!el) return;
+    saveSel(cssPath(el));
+    stopPick();
+    toast("Caption source saved for " + location.hostname);
+  }
+
+  const pickHandler = (t) => (t === "click" ? onPickClick : swallow);
+
+  function startPick() {
+    refreshVideos();
+    if (!videos.length && kids.size) return send([...kids.keys()][0], { [MSG]: "pick" });
+    if (!videos.length) return toast("No video found here", "Pick caption");
+    const pv = targetVideo();
+    if (pv && pv.mediaKeys) return toast("protected by DRM", "Pick caption");
+    picking = true;
+    hideButton();
+    hl = document.createElement("div");
+    hl.id = "cpip-hl";
+    hint = document.createElement("div");
+    hint.id = "cpip-hint";
+    hint.append(span("Click the caption text while it is on screen"), span("Esc", "cpip-key"), span("Cancel"), span("Del", "cpip-key"), span("Reset"));
+    mount().append(hl, hint);
+    centerOnPlayer(hint);
+    window.addEventListener("mousemove", onPickMove, true);
+    PICK_EVENTS.forEach((t) => window.addEventListener(t, pickHandler(t), true));
+  }
+
+  function stopPick() {
+    picking = false;
+    hl && hl.remove();
+    hint && hint.remove();
+    window.removeEventListener("mousemove", onPickMove, true);
+    PICK_EVENTS.forEach((t) => window.removeEventListener(t, pickHandler(t), true));
+  }
+
+  /* Save selector per site */
+  const store = globalThis.chrome && chrome.storage && chrome.storage.local;
+
+  function saveSel(sel) {
+    CPIP.customSel = sel;
+    try {
+      store && store.set({ [STORE]: sel });
+    } catch (e) {}
+  }
+
+  try {
+    store && store.get(STORE, (o) => (CPIP.customSel = (o && o[STORE]) || ""));
+    chrome.storage.onChanged.addListener((ch, a) => {
+      if (a === "local" && ch[STORE]) CPIP.customSel = ch[STORE].newValue || "";
+    });
+  } catch (e) {}
+
+  /* Keyboard shortcut */
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (picking) {
+        if (e.key === "Escape") {
+          swallow(e);
+          stopPick();
+          toast("Caption pick cancelled");
+        } else if (e.key === "Delete" || e.key === "Backspace") {
+          swallow(e);
+          saveSel("");
+          stopPick();
+          toast("Caption source reset for " + location.hostname);
+        }
+        return;
+      }
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat) return;
+      const action = { KeyP: toggle, KeyS: startPick }[e.code];
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    },
+    true
+  );
+
+  /* Share with captions.js and pip.js */
+  Object.assign(CPIP, { clamp, isOurs, hasText, content, playerRoot, toast, updateButton });
+
+  /* Lifecycle */
+  document.addEventListener("fullscreenchange", () => btn && ensureButton());
+  window.addEventListener("pagehide", () => CPIP.stop());
+
+  refreshVideos();
+  setInterval(refreshVideos, 1500);
+})();

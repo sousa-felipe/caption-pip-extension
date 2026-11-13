@@ -1,0 +1,212 @@
+/*
+    Caption Pip - a browser extension that keeps the caption visible in "Caption Pip" mode.
+    Caption Pip is an independent project. Does not record your screen, collect or sell your data.
+
+    Home: https://github.com/sousa-felipe/caption-pip-extension
+
+*/
+
+/* Floating buttons over the video, hidden until the player is hovered */
+#cpip-button,
+#cpip-pick {
+  all: initial;
+  position: fixed;
+  z-index: 2147483646;
+  width: 28px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: linear-gradient(to bottom, rgba(28, 28, 28, 0.6) 0%, rgba(28, 28, 28, 0.4) 100%);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#cpip-button.cpip-show,
+#cpip-pick.cpip-show {
+  opacity: 0.9;
+  pointer-events: auto;
+}
+/* Rounded highlight shown on hover */
+#cpip-button::after,
+#cpip-pick::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  left: 4px;
+  z-index: -1;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 0;
+  pointer-events: none;
+}
+#cpip-button::after { border-radius: 14px 3px 3px 14px; }
+#cpip-pick::after { border-radius: 3px 14px 14px 3px; }
+#cpip-button:hover::after,
+#cpip-pick:hover::after { opacity: 1; }
+
+/* Buttons */
+#cpip-button {
+  width: 48px;
+  justify-content: flex-start;
+  border-radius: 18px 0 0 18px;
+}
+#cpip-pick {
+  width: 44px;
+  justify-content: flex-start;
+  border-radius: 0 18px 18px 0;
+}
+#cpip-button svg { margin-left: 10.7px; }
+#cpip-pick svg { margin-left: 8.65px; }
+/* Thin divider between the two buttons */
+#cpip-pick::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+/* Blue outline while Caption Pip mode is on */
+#cpip-button.cpip-on { box-shadow: inset 0 0 0 2px #3ea6ff; }
+#cpip-button svg,
+#cpip-pick svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+  pointer-events: none;
+}
+
+/* Recreate YouTube default tooltip */
+#cpip-button .cpip-tip,
+#cpip-pick .cpip-tip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#cpip-button:hover .cpip-tip,
+#cpip-pick:hover .cpip-tip { display: inline-flex; }
+/* Keyboard shortcut keys inside the tooltip */
+#cpip-button .cpip-keys,
+#cpip-pick .cpip-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: -4px;
+}
+#cpip-button .cpip-plus,
+#cpip-pick .cpip-plus {
+  display: inline-flex;
+  align-items: center;
+}
+#cpip-button .cpip-plus svg,
+#cpip-pick .cpip-plus svg {
+  width: 8px;
+  height: 8px;
+  margin: 0;
+}
+#cpip-button .cpip-key,
+#cpip-pick .cpip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px 1px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  font-size: 12px;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: center;
+}
+
+/* Hidden video that feeds the Picture-in-Picture window */
+video.cpip-out {
+  position: fixed !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 2px !important;
+  height: 2px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
+/* Caption source picker */
+#cpip-hl {
+  position: fixed;
+  z-index: 2147483645;
+  box-sizing: border-box;
+  border: 2px dashed #3ea6ff;
+  background: rgba(62, 166, 255, 0.15);
+  pointer-events: none;
+}
+/* Messages sit in the middle of the player */
+#cpip-hint,
+#cpip-toast {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2147483647;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#cpip-hint .cpip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px 1px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+}
+#cpip-toast {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+#cpip-toast.cpip-show { opacity: 1; }
