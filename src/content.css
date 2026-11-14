@@ -118,16 +118,24 @@
   gap: 4px;
   margin-left: -4px;
 }
+/* "+" Between the keys */
 #cpip-button .cpip-plus,
 #cpip-pick .cpip-plus {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 18px;
+  opacity: 0.9;
 }
+/* Avoid cross */
 #cpip-button .cpip-plus svg,
 #cpip-pick .cpip-plus svg {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   margin: 0;
+  overflow: visible;
+  shape-rendering: crispEdges;
 }
 #cpip-button .cpip-key,
 #cpip-pick .cpip-key {

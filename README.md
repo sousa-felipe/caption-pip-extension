@@ -13,7 +13,9 @@
 
 ## How to use
 
-Open a video, then press **`P`** (or use the *Caption Pip* **button** on upper right corner)
+Open a video, then press **`Alt`** + **`Shift`** + **`P`** (or use the *Caption Pip* **button** on upper right corner).
+
+If the captions are not found, press **`Alt`** + **`Shift`** + **`S`** (or the *Pick caption* **button** on upper right corner and click the caption text).
 
 ## How it works
 

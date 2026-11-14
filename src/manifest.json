@@ -4,6 +4,7 @@
   "homepage_url": "https://github.com/sousa-felipe/caption-pip-extension",
   "version": "1.0.0",
   "description": "Watch video with captions using Caption Pip",
+  "minimum_chrome_version": "88",
   "icons": {
     "16": "img/icons/icon16.png",
     "48": "img/icons/icon48.png",

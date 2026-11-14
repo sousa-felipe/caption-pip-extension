@@ -6,7 +6,10 @@
   const MAX_W = 1920;
   const MIN_W = 640;
   const STEP_W = 128;
-  const SCAN_MS = 33;
+  const SCAN_MS = 100; /* ~10 Hz is enough for captions */
+  const SCAN_PAUSED_MS = 500;
+  const KEEPALIVE_MS = 500;
+  const STALL_MS = 500;
   const BOOST = 1.2;
   const MIN_PX = 15;
 
@@ -62,6 +65,8 @@
     const { video, canvas: cv, ctx } = s;
     const c = CPIP.content(video);
     if (!c.width || !c.height) return;
+    s.dirty = false;
+    s.paintAt = performance.now();
     const sx = cv.width / c.width;
     const sy = cv.height / c.height;
     try {
@@ -97,22 +102,52 @@
     paint(s);
   }
 
+  /* Caption fingerprint, to repaint only when something moved or changed */
+  const sigOf = (caps) =>
+    caps.layers.length + "|" + caps.blocks.map((b) => `${b.text}@${Math.round(b.left)},${Math.round(b.bottom)},${Math.round(b.width)}`).join("|");
+
+  /* Decoded frame counter, changes once per real video frame */
+  function frameCount(v) {
+    try {
+      return v.getVideoPlaybackQuality().totalVideoFrames;
+    } catch (e) {
+      return v.currentTime;
+    }
+  }
+
   function frame(s) {
+    if (session !== s) return;
     const t = performance.now();
-    if (t - s.last < 1000 / FPS - 4) return;
-    s.last = t;
     if (!s.video.isConnected) return stop(s);
-    if (t - s.scanAt >= SCAN_MS) {
+    const playing = !s.video.paused;
+    if (t - s.scanAt >= (playing ? SCAN_MS : SCAN_PAUSED_MS)) {
       s.scanAt = t;
       try {
         s.caps = CPIP.scan(s);
+        const sig = sigOf(s.caps);
+        if (sig !== s.sig) {
+          s.sig = sig;
+          s.dirty = true;
+        }
       } catch (e) {
         console.warn("[Caption pip] scan failed", e);
       }
       const k = s.video.videoWidth / s.video.videoHeight;
       if (k && Math.abs(s.canvas.width / s.canvas.height - k) > 0.01) sizeCanvas(s);
     }
-    paint(s);
+    /* Paint at the video's own frame rate, not at 60 fps */
+    const fc = frameCount(s.video);
+    if (fc !== s.fc) {
+      s.fc = fc;
+      s.fcAt = t;
+      s.dirty = true;
+    } else if (playing && t - s.fcAt > STALL_MS) {
+      /* Counter not moving while playing, fall back to every tick */
+      s.dirty = true;
+    }
+    /* Canvas subtitles animate on their own */
+    if (playing && s.caps.layers.length) s.dirty = true;
+    if (s.dirty || t - s.paintAt >= KEEPALIVE_MS) paint(s);
   }
 
   /* Session */
@@ -121,19 +156,48 @@
     s.undo.push(() => target.removeEventListener(type, fn));
   }
 
-  /* Anti low freq ticker */
+  /* Worker timers keep running in background tabs; plain interval as fallback */
   function startTicker(s) {
     const tick = () => frame(s);
-    const ms = 1000 / FPS;
-    s.timer = setInterval(tick, ms);
+    const ms = Math.round(1000 / FPS);
     try {
-      const url = URL.createObjectURL(new Blob(["setInterval(()=>postMessage(0)," + Math.round(ms) + ")"]));
+      const url = URL.createObjectURL(new Blob(["setInterval(()=>postMessage(0)," + ms + ")"]));
       s.worker = new Worker(url);
-      s.worker.onmessage = tick;
-      s.worker.onerror = () => s.worker && s.worker.terminate();
       URL.revokeObjectURL(url);
-    } catch (e) {}
+      s.worker.onmessage = tick;
+      s.worker.onerror = () => {
+        s.worker.terminate();
+        s.worker = null;
+        if (session === s && !s.timer) s.timer = setInterval(tick, ms);
+      };
+    } catch (e) {
+      s.timer = setInterval(tick, ms);
+    }
   }
+
+  /* Media keys follow the source video while the session lasts */
+  function bindMediaSession(s, video) {
+    const ms = navigator.mediaSession;
+    if (!ms) return;
+    const acts = {
+      play: () => video.play(),
+      pause: () => video.pause(),
+      seekbackward: () => (video.currentTime = Math.max(0, video.currentTime - 10)),
+      seekforward: () => (video.currentTime = video.currentTime + 10),
+    };
+    for (const [name, fn] of Object.entries(acts)) {
+      try {
+        ms.setActionHandler(name, fn);
+        s.undo.push(() => {
+          try {
+            ms.setActionHandler(name, null);
+          } catch (e) {}
+        });
+      } catch (e) {}
+    }
+  }
+
+  const exitIf = (el) => document.pictureInPictureElement === el && document.exitPictureInPicture().catch(() => {});
 
   /* Open plain PiP without captions */
   async function startNative(video) {
@@ -142,9 +206,12 @@
     try {
       await video.requestPictureInPicture();
     } catch (e) {
+      if (session !== s) return;
       stop(s);
       return CPIP.toast("Could not open Caption pip", "Caption pip");
     }
+    /* Stopped while opening */
+    if (session !== s) return exitIf(video);
     bind(s, video, "leavepictureinpicture", () => stop(s));
     CPIP.updateButton();
   }
@@ -163,8 +230,12 @@
       caps: { blocks: [], layers: [] },
       undo: [],
       win: null,
-      last: 0,
       scanAt: 0,
+      paintAt: 0,
+      fc: -1,
+      fcAt: 0,
+      sig: "",
+      dirty: true,
       nudge: false,
     };
     session = s;
@@ -184,8 +255,13 @@
       s.out.srcObject = s.canvas.captureStream(FPS);
       document.documentElement.appendChild(s.out);
       await s.out.play();
+      if (session !== s) return;
       s.win = await s.out.requestPictureInPicture();
+      /* Stopped while opening: close the window we just got */
+      if (session !== s) return exitIf(s.out);
     } catch (e) {
+      /* A stop() during the await is not an error */
+      if (session !== s) return;
       stop(s);
       return CPIP.toast(e && e.message ? e.message : "Could not open Caption pip", "Caption pip");
     }
@@ -205,6 +281,7 @@
     bind(s, video, "play", () => s.out.paused && s.out.play().catch(() => {}));
     bind(s, video, "pause", () => !s.out.paused && s.out.pause());
     bind(s, video, "seeked", () => {
+      s.dirty = true;
       if (!video.paused) return;
       s.nudge = true;
       s.out.play().catch(() => {});
@@ -215,13 +292,7 @@
     });
     if (video.paused) s.out.pause();
 
-    try {
-      const ms = navigator.mediaSession;
-      ms.setActionHandler("play", () => video.play());
-      ms.setActionHandler("pause", () => video.pause());
-      ms.setActionHandler("seekbackward", () => (video.currentTime = Math.max(0, video.currentTime - 10)));
-      ms.setActionHandler("seekforward", () => (video.currentTime = video.currentTime + 10));
-    } catch (e) {}
+    bindMediaSession(s, video);
     CPIP.updateButton();
   }
 
@@ -233,9 +304,9 @@
     if (s.worker) s.worker.terminate();
     s.undo.forEach((fn) => fn());
     if (s.mode === "native") {
-      if (document.pictureInPictureElement === s.video) document.exitPictureInPicture().catch(() => {});
+      exitIf(s.video);
     } else {
-      if (document.pictureInPictureElement === s.out) document.exitPictureInPicture().catch(() => {});
+      exitIf(s.out);
       if (s.out.srcObject) s.out.srcObject.getTracks().forEach((t) => t.stop());
       s.out.remove();
     }

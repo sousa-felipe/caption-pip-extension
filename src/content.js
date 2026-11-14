@@ -7,15 +7,30 @@
   const CPIP = (window.CPIP = window.CPIP || {});
   CPIP.customSel = "";
 
-  const STORE = "sel:" + location.hostname;
+  /* Borrow the parent's hostname */
+  const HOST =
+    location.hostname ||
+    (() => {
+      try {
+        const a = location.ancestorOrigins;
+        return a && a.length ? new URL(a[0]).hostname : "";
+      } catch (e) {
+        return "";
+      }
+    })();
+  const STORE = HOST ? "sel:" + HOST : "";
+  const SITE = HOST || "this page";
   const MSG = "caption-pip";
   const PICK_EVENTS = ["click", "mousedown", "mouseup", "pointerdown", "pointerup"];
+  const MEDIA_EVENTS = ["loadedmetadata", "play", "pause", "emptied", "resize"];
 
   let videos = [];
   let hoverVideo = null;
   let hoverFrame = null;
   let picking = false;
+  let lastRefresh = 0;
   const kids = new Map();
+  const shadows = new Set();
 
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
   const isOurs = (el) => !!el.closest?.("#cpip-button,#cpip-pick,#cpip-hint,#cpip-toast,#cpip-hl,.cpip-out");
@@ -30,22 +45,77 @@
     return f && f.tagName !== "VIDEO" ? f : document.documentElement;
   }
 
-  /* Video finder */
-  function collectVideos(root, out) {
-    root.querySelectorAll("video").forEach((v) => out.push(v));
-    root.querySelectorAll("*").forEach((el) => el.shadowRoot && collectVideos(el.shadowRoot, out));
+  /* Shadow DOM */
+  function shadowRootsIn(root, out = []) {
+    for (const el of root.querySelectorAll("*")) {
+      if (!el.shadowRoot) continue;
+      out.push(el.shadowRoot);
+      shadowRootsIn(el.shadowRoot, out);
+    }
     return out;
   }
 
+  /* Cache roots of shadow DOM */
+  const rootsCache = new WeakMap();
+  function rootsIn(root, ttl = 2000) {
+    const now = performance.now();
+    const hit = rootsCache.get(root);
+    if (hit && now - hit.at < ttl) return hit.list;
+    const list = [root, ...shadowRootsIn(root)];
+    rootsCache.set(root, { at: now, list });
+    return list;
+  }
+
+  /* Query roots without repeats */
+  const qsaAll = (roots, sel) => [...new Set(roots.flatMap((r) => [...r.querySelectorAll(sel)]))];
+
+  /* Walk full page for shadow roots */
+  const learnShadows = (root = document) => shadowRootsIn(root).forEach((r) => shadows.add(r));
+
+  /* Learn shadow roots under pointer */
+  function learnFromPath(e) {
+    let found = false;
+    for (const n of e.composedPath()) {
+      if (n instanceof ShadowRoot && !shadows.has(n)) {
+        shadows.add(n);
+        learnShadows(n);
+        found = true;
+      }
+    }
+    return found;
+  }
+
+  function knownRoots() {
+    for (const r of shadows) if (!r.host.isConnected) shadows.delete(r);
+    return [document, ...shadows];
+  }
+
+  /* Video finder */
   function usable(v) {
     const r = v.getBoundingClientRect();
     return v.isConnected && r.width >= 160 && r.height >= 90 && v.videoWidth > 0;
   }
 
   function refreshVideos() {
-    videos = collectVideos(document, []).filter(usable);
+    lastRefresh = performance.now();
+    videos = qsaAll(knownRoots(), "video").filter(usable);
     if (videos.length) ensureButton();
-    if (videos.length || kids.size) announce();
+    announce();
+  }
+
+  /* Refresh on media events */
+  let refreshTimer = 0;
+  function scheduleRefresh() {
+    if (refreshTimer) return;
+    refreshTimer = setTimeout(() => {
+      refreshTimer = 0;
+      refreshVideos();
+    }, 250);
+  }
+
+  function onMedia(e) {
+    const t = e.target;
+    if (t === window || (t instanceof HTMLMediaElement && !t.classList.contains("cpip-out"))) scheduleRefresh();
   }
 
   function videoAt(x, y) {
@@ -65,7 +135,7 @@
   }
 
   /* Pick video under pointer or best one */
-  const targetVideo = () => (hoverVideo && hoverVideo.isConnected ? hoverVideo : bestVideo());
+  const targetVideo = () => (hoverVideo && hoverVideo.isConnected && videos.includes(hoverVideo) ? hoverVideo : bestVideo());
 
   /* Create span with text */
   function span(text, cls) {
@@ -88,20 +158,23 @@
     return { left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, width: w, height: h };
   }
 
+  /* Get parent across shadow DOM */
+  const up = (el) => el.parentElement || (el.parentNode instanceof ShadowRoot ? el.parentNode.host : null);
+
   /* Search captions */
   function playerRoot(v, c) {
     if (window.top !== window && c.width * c.height > innerWidth * innerHeight * 0.7) return document.body;
     /* YouTube captions live inside the player */
     const yt = v.closest(".html5-video-player");
     if (yt) return yt;
-    let root = v.parentElement || v.getRootNode();
-    let el = v.parentElement;
+    let root = up(v) || v.getRootNode();
+    let el = up(v);
     const a = c.width * c.height;
     while (el && el !== document.body && el !== document.documentElement) {
       const r = el.getBoundingClientRect();
       if (r.width * r.height > a * 1.8 || r.width < c.width * 0.95 || r.height < c.height * 0.95) break;
       root = el;
-      el = el.parentElement;
+      el = up(el);
     }
     return root;
   }
@@ -110,7 +183,9 @@
   const hasText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
 
   function toggle() {
+    learnShadows();
     refreshVideos();
+    kidFrames();
     if (!CPIP.active() && !videos.length && kids.size) return forward();
     if (CPIP.active()) CPIP.stop();
     else CPIP.start(targetVideo());
@@ -177,18 +252,33 @@
     }
   }
 
+  /* Tell parent frame about videos */
+  let sent = "";
   function announce() {
     if (window.top === window) return;
-    const on = CPIP.active() || [...kids.values()].some((k) => k.on);
-    send(parent, { [MSG]: "video", has: videos.length > 0 || kids.size > 0, on });
+    const k = [...kids.values()];
+    const has = videos.length > 0 || kids.size > 0;
+    const on = CPIP.active() || k.some((x) => x.on);
+    const playing = videos.some((v) => !v.paused) || k.some((x) => x.playing);
+    const key = `${has}|${on}|${playing}`;
+    if (key === sent) return;
+    sent = key;
+    send(parent, { [MSG]: "video", has, on, playing });
+  }
+
+  /* Find child frames with video */
+  function kidFrames() {
+    const live = new Set();
+    for (let i = 0; i < frames.length; i++) live.add(frames[i]);
+    for (const w of kids.keys()) if (!live.has(w)) kids.delete(w);
+    return qsaAll(knownRoots(), "iframe").filter((f) => kids.has(f.contentWindow));
   }
 
   /* Find iframe under pointer */
   function frameAt(x, y) {
     let best = null;
     let max = 0;
-    for (const f of document.querySelectorAll("iframe")) {
-      if (!kids.has(f.contentWindow)) continue;
+    for (const f of kidFrames()) {
       const r = f.getBoundingClientRect();
       const a = r.width * r.height;
       if (r.width < 160 || r.height < 90 || x < r.left || x > r.right || y < r.top || y > r.bottom || a < max) continue;
@@ -198,23 +288,45 @@
     return best;
   }
 
-  /* Pass click to player frame */
-  function forward(win) {
-    const w = win || [...kids.keys()][0];
-    if (w) send(w, { [MSG]: "toggle" });
+  /* Pick active frame, then playing, then biggest */
+  function bestKid() {
+    const score = (f) => {
+      const k = kids.get(f.contentWindow);
+      return (k.on ? 4e9 : 0) + (k.playing ? 2e9 : 0) + area(f);
+    };
+    const f = kidFrames().sort((a, b) => score(b) - score(a))[0];
+    return f ? f.contentWindow : [...kids.keys()][0] || null;
   }
+
+  /* Pass action to player frame */
+  function forward(win, what = "toggle") {
+    const w = win || bestKid();
+    if (w) send(w, { [MSG]: what });
+  }
+
+  const isChild = (w) => {
+    try {
+      return w.parent === window;
+    } catch (e) {
+      return false;
+    }
+  };
 
   window.addEventListener("message", (e) => {
     const d = e.data;
     if (!d || typeof d !== "object" || !(MSG in d) || !e.source || e.source === window) return;
-    if (d[MSG] === "video") {
-      if (d.has) kids.set(e.source, { on: !!d.on });
+    const fromParent = e.source === parent;
+    if (d[MSG] === "video" && isChild(e.source)) {
+      if (d.has) kids.set(e.source, { on: !!d.on, playing: !!d.playing });
       else kids.delete(e.source);
-      if (btn) updateButton();
-    } else if (d[MSG] === "toggle" && e.source === parent) {
+      updateButton();
+    } else if (d[MSG] === "toggle" && fromParent) {
       toggle();
-    } else if (d[MSG] === "pick" && e.source === parent) {
+    } else if (d[MSG] === "pick" && fromParent) {
       startPick();
+    } else if (d[MSG] === "ping" && fromParent) {
+      sent = "";
+      announce();
     }
   });
 
@@ -233,9 +345,15 @@
     '<path fill="none" stroke="#fff" stroke-width="3.72" stroke-linecap="round" d="M24 24L31.5 31.5"/>' +
     '<path clip-path="url(#cpip-lens)" fill="none" stroke="#fff" stroke-width="2.82" stroke-linecap="round" d="M12.53 11.9a4 4 0 1 0 0 6.2M23.53 11.9a4 4 0 1 0 0 6.2"/></g></svg>';
 
-  /* Recreate YouTube default tooltip */
-  const PLUS = '<svg viewBox="0 0 8 8" aria-hidden="true"><path d="M4 1v6M1 4h6" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  /* Plus icon */
+  const PLUS = '<svg viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 1v7M1 4.5h7" fill="none" stroke="#fff" stroke-width="1"/></svg>';
 
+  /* Shortcuts */
+  const KEYS_PIP = ["Alt", "Shift", "P"];
+  const KEYS_PICK = ["Alt", "Shift", "S"];
+  const keysLabel = (keys) => keys.join("+");
+
+  /* Recreate YouTube default tooltip */
   function setTip(b, label, keys) {
     let t = b.querySelector(".cpip-tip");
     if (!t) b.appendChild((t = span("", "cpip-tip")));
@@ -253,6 +371,7 @@
 
   let btn = null;
   let pickBtn = null;
+  let btnLabel = "";
 
   /* Send click to iframe or handle here */
   function makeButton(id, icon, onClick) {
@@ -274,9 +393,9 @@
       updateButton();
     }
     if (!pickBtn) {
-      pickBtn = makeButton("cpip-pick", ICON_PICK, (_, win) => (win ? send(win, { [MSG]: "pick" }) : startPick()));
-      pickBtn.setAttribute("aria-label", "Pick caption (S)");
-      setTip(pickBtn, "Pick caption", ["S"]);
+      pickBtn = makeButton("cpip-pick", ICON_PICK, (_, win) => (win ? forward(win, "pick") : startPick()));
+      pickBtn.setAttribute("aria-label", `Pick caption (${keysLabel(KEYS_PICK)})`);
+      setTip(pickBtn, "Pick caption", KEYS_PICK);
     }
     const m = mount();
     if (btn.parentNode !== m) m.appendChild(btn);
@@ -289,8 +408,11 @@
     const on = hoverFrame && hoverFrame.isConnected ? !!(kids.get(hoverFrame.contentWindow) || {}).on : CPIP.active();
     const label = on ? "Exit caption pip" : "Caption pip";
     btn.classList.toggle("cpip-on", on);
-    btn.setAttribute("aria-label", label + " (P)");
-    setTip(btn, label, ["P"]);
+    /* Update tooltip on label change */
+    if (label === btnLabel) return;
+    btnLabel = label;
+    btn.setAttribute("aria-label", `${label} (${keysLabel(KEYS_PIP)})`);
+    setTip(btn, label, KEYS_PIP);
   }
 
   function placeButton(v) {
@@ -317,13 +439,17 @@
     "mousemove",
     (e) => {
       const now = performance.now();
-      if (now - lastMove < 80 || (!videos.length && !kids.size) || picking) return;
+      if (now - lastMove < 80 || picking) return;
       lastMove = now;
+      /* Refresh videos resized without events */
+      if (learnFromPath(e) || now - lastRefresh > 1000) refreshVideos();
+      if (!videos.length && !kids.size) return;
       const v = videoAt(e.clientX, e.clientY);
       const f = v ? null : frameAt(e.clientX, e.clientY);
-      if (!v && !f) return hideButton();
+      /* Reset hover on pointer leave */
       hoverVideo = v;
       hoverFrame = f;
+      if (!v && !f) return hideButton();
       if (!inHotzone(v || f, e.clientX, e.clientY)) return hideButton();
       ensureButton();
       updateButton();
@@ -333,11 +459,19 @@
     { capture: true, passive: true }
   );
 
+  /* Hide buttons on page leave */
+  document.documentElement.addEventListener("mouseleave", () => {
+    if (picking) return;
+    hoverVideo = hoverFrame = null;
+    hideButton();
+  });
+
   /* Caption picker */
   let hl = null;
   let hint = null;
 
   function cssPath(el) {
+    const scope = el.getRootNode();
     const parts = [];
     let n = el;
     for (let i = 0; n && n.nodeType === 1 && i < 4; i++, n = n.parentElement) {
@@ -351,7 +485,7 @@
       parts.unshift(p);
       if (cls.length) {
         try {
-          const count = document.querySelectorAll(parts.join(" > ")).length;
+          const count = scope.querySelectorAll(parts.join(" > ")).length;
           if (count >= 1 && count <= 6) break;
         } catch (e) {}
       }
@@ -366,17 +500,15 @@
     const root = playerRoot(v, content(v));
     let best = null;
     let bestA = Infinity;
-    for (const el of root.querySelectorAll("*")) {
-      if (isOurs(el) || el === v) continue;
-      if (!hasText(el)) continue;
+    for (const el of qsaAll(rootsIn(root, 1000), "*")) {
+      if (el === v || !hasText(el) || isOurs(el)) continue;
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height || x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (r.width * r.height >= bestA) continue;
       const cs = getComputedStyle(el);
       if (cs.display === "none" || cs.visibility === "hidden") continue;
-      if (r.width * r.height < bestA) {
-        best = el;
-        bestA = r.width * r.height;
-      }
+      best = el;
+      bestA = r.width * r.height;
     }
     return best;
   }
@@ -386,11 +518,20 @@
     e.stopImmediatePropagation();
   };
 
+  /* Limit lookup to one per frame */
+  let pickRaf = 0;
+  let pickXY = null;
   function onPickMove(e) {
-    const el = textAt(e.clientX, e.clientY);
-    if (!el) return (hl.style.display = "none");
-    const r = el.getBoundingClientRect();
-    hl.style.cssText = `display:block;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+    pickXY = [e.clientX, e.clientY];
+    if (pickRaf) return;
+    pickRaf = requestAnimationFrame(() => {
+      pickRaf = 0;
+      if (!picking) return;
+      const el = textAt(...pickXY);
+      if (!el) return (hl.style.display = "none");
+      const r = el.getBoundingClientRect();
+      hl.style.cssText = `display:block;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+    });
   }
 
   function onPickClick(e) {
@@ -399,14 +540,17 @@
     if (!el) return;
     saveSel(cssPath(el));
     stopPick();
-    toast("Caption source saved for " + location.hostname);
+    toast("Caption source saved for " + SITE);
   }
 
   const pickHandler = (t) => (t === "click" ? onPickClick : swallow);
 
   function startPick() {
+    if (picking) return;
+    learnShadows();
     refreshVideos();
-    if (!videos.length && kids.size) return send([...kids.keys()][0], { [MSG]: "pick" });
+    kidFrames();
+    if (!videos.length && kids.size) return forward(null, "pick");
     if (!videos.length) return toast("No video found here", "Pick caption");
     const pv = targetVideo();
     if (pv && pv.mediaKeys) return toast("protected by DRM", "Pick caption");
@@ -425,6 +569,8 @@
 
   function stopPick() {
     picking = false;
+    cancelAnimationFrame(pickRaf);
+    pickRaf = 0;
     hl && hl.remove();
     hint && hint.remove();
     window.removeEventListener("mousemove", onPickMove, true);
@@ -437,18 +583,21 @@
   function saveSel(sel) {
     CPIP.customSel = sel;
     try {
-      store && store.set({ [STORE]: sel });
+      STORE && store && store.set({ [STORE]: sel });
     } catch (e) {}
   }
 
   try {
-    store && store.get(STORE, (o) => (CPIP.customSel = (o && o[STORE]) || ""));
-    chrome.storage.onChanged.addListener((ch, a) => {
-      if (a === "local" && ch[STORE]) CPIP.customSel = ch[STORE].newValue || "";
-    });
+    if (STORE && store) {
+      store.get(STORE, (o) => (CPIP.customSel = (o && o[STORE]) || ""));
+      chrome.storage.onChanged.addListener((ch, a) => {
+        if (a === "local" && ch[STORE]) CPIP.customSel = ch[STORE].newValue || "";
+      });
+    }
   } catch (e) {}
 
   /* Keyboard shortcut */
+  const ACTIONS = { KeyP: toggle, KeyS: startPick };
   window.addEventListener(
     "keydown",
     (e) => {
@@ -461,15 +610,15 @@
           swallow(e);
           saveSel("");
           stopPick();
-          toast("Caption source reset for " + location.hostname);
+          toast("Caption source reset for " + SITE);
         }
         return;
       }
+      if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey || e.repeat) return;
+      const action = ACTIONS[e.code];
+      if (!action) return;
       const t = e.target;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat) return;
-      const action = { KeyP: toggle, KeyS: startPick }[e.code];
-      if (!action) return;
       e.preventDefault();
       e.stopPropagation();
       action();
@@ -478,12 +627,28 @@
   );
 
   /* Share with captions.js and pip.js */
-  Object.assign(CPIP, { clamp, isOurs, hasText, content, playerRoot, toast, updateButton });
+  Object.assign(CPIP, { clamp, isOurs, hasText, content, playerRoot, toast, updateButton, rootsIn, qsaAll, knownRoots });
 
   /* Lifecycle */
-  document.addEventListener("fullscreenchange", () => btn && ensureButton());
-  window.addEventListener("pagehide", () => CPIP.stop());
+  MEDIA_EVENTS.forEach((t) => window.addEventListener(t, onMedia, true));
+  document.addEventListener("fullscreenchange", () => {
+    scheduleRefresh();
+    if (btn) ensureButton();
+  });
+  window.addEventListener("pagehide", () => {
+    CPIP.stop();
+    if (window.top !== window) send(parent, { [MSG]: "video", has: false });
+    sent = "";
+  });
+  window.addEventListener("pageshow", (e) => e.persisted && refreshVideos());
 
   refreshVideos();
-  setInterval(refreshVideos, 1500);
+  /* Ask child frames to announce again */
+  for (let i = 0; i < frames.length; i++) send(frames[i], { [MSG]: "ping" });
+  /* Walk shadow DOM when idle */
+  (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => {
+    const n = shadows.size;
+    learnShadows();
+    if (shadows.size !== n) refreshVideos();
+  });
 })();
