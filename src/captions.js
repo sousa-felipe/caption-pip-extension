@@ -2,7 +2,7 @@
   if (window.__cpipLoaded) return;
   const CPIP = (window.CPIP = window.CPIP || {});
 
-  /* Whole words only, so "glass", "context" or "subscribe" do not match */
+  /* Match whole words only */
   const CANVAS_NAME = /subtitle|caption|octopus|libass|jassub|danmaku|(^|[^a-z])(subs?|ass|text-?track)([^a-z]|$)/i;
 
   /* Caption sources */
@@ -53,7 +53,7 @@
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     if (cx < box.left || cx > box.right || cy < box.top || cy > box.bottom) return false;
-    /* Style check last, it is the slow part */
+    /* Check style last */
     return !invisible(getComputedStyle(el));
   }
 
@@ -98,7 +98,7 @@
     return list.map((el) => blockOf(el, root)).filter(Boolean);
   }
 
-  /* Some players render the same caption twice (visible copy + mirror); keep one */
+  /* Remove repeated captions */
   function dedupe(blocks) {
     const lines = (b) => b.text.split("\n").map(norm).filter(Boolean);
     const sorted = [...blocks].sort((a, b) => lines(b).length - lines(a).length);
@@ -132,7 +132,7 @@
     return out;
   }
 
-  /* Read native tracks (WebVTT), skip cues already found in the page */
+  /* Read native tracks (WebVTT) */
   function cueBlocks(v, c, seen) {
     const out = [];
     for (const t of v.textTracks) {
@@ -193,7 +193,7 @@
     const a = s.video;
     const c = CPIP.content(a);
     const root = CPIP.playerRoot(a, c);
-    /* Player root plus its shadow roots */
+    /* Search player and its shadow roots */
     const roots = CPIP.rootsIn(root);
     let blocks = dedupe(stack(domBlocks(a, root, roots)));
     /* Align YouTube captions to the left edge */

@@ -232,7 +232,7 @@
     }
     if (!toastEl.isConnected) mount().appendChild(toastEl);
     centerOnPlayer(toastEl);
-    toastEl.replaceChildren(...(who ? [span(who), span("ERROR"), span(msg)] : [span(msg)]));
+    toastEl.replaceChildren(...(who ? [span(who, "cpip-who"), span(msg)] : [span(msg)]));
     toastEl.classList.add("cpip-show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
@@ -553,7 +553,7 @@
     if (!videos.length && kids.size) return forward(null, "pick");
     if (!videos.length) return toast("No video found here", "Pick caption");
     const pv = targetVideo();
-    if (pv && pv.mediaKeys) return toast("protected by DRM", "Pick caption");
+    if (pv && pv.mediaKeys) return toast("Protected by DRM", "Pick caption");
     picking = true;
     hideButton();
     hl = document.createElement("div");

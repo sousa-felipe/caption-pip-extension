@@ -6,7 +6,7 @@
   const MAX_W = 1920;
   const MIN_W = 640;
   const STEP_W = 128;
-  const SCAN_MS = 100; /* ~10 Hz is enough for captions */
+  const SCAN_MS = 100;
   const SCAN_PAUSED_MS = 500;
   const KEEPALIVE_MS = 500;
   const STALL_MS = 500;
@@ -102,11 +102,11 @@
     paint(s);
   }
 
-  /* Caption fingerprint, to repaint only when something moved or changed */
+  /* Get caption fingerprint */
   const sigOf = (caps) =>
     caps.layers.length + "|" + caps.blocks.map((b) => `${b.text}@${Math.round(b.left)},${Math.round(b.bottom)},${Math.round(b.width)}`).join("|");
 
-  /* Decoded frame counter, changes once per real video frame */
+  /* Count decoded frames */
   function frameCount(v) {
     try {
       return v.getVideoPlaybackQuality().totalVideoFrames;
@@ -135,17 +135,17 @@
       const k = s.video.videoWidth / s.video.videoHeight;
       if (k && Math.abs(s.canvas.width / s.canvas.height - k) > 0.01) sizeCanvas(s);
     }
-    /* Paint at the video's own frame rate, not at 60 fps */
+    /* Paint at video frame rate */
     const fc = frameCount(s.video);
     if (fc !== s.fc) {
       s.fc = fc;
       s.fcAt = t;
       s.dirty = true;
     } else if (playing && t - s.fcAt > STALL_MS) {
-      /* Counter not moving while playing, fall back to every tick */
+      /* Paint every tick if counter stalls */
       s.dirty = true;
     }
-    /* Canvas subtitles animate on their own */
+    /* Paint canvas subtitles every tick */
     if (playing && s.caps.layers.length) s.dirty = true;
     if (s.dirty || t - s.paintAt >= KEEPALIVE_MS) paint(s);
   }
@@ -156,7 +156,7 @@
     s.undo.push(() => target.removeEventListener(type, fn));
   }
 
-  /* Worker timers keep running in background tabs; plain interval as fallback */
+  /* Anti low freq ticker */
   function startTicker(s) {
     const tick = () => frame(s);
     const ms = Math.round(1000 / FPS);
@@ -175,7 +175,7 @@
     }
   }
 
-  /* Media keys follow the source video while the session lasts */
+  /* Bind media keys to video */
   function bindMediaSession(s, video) {
     const ms = navigator.mediaSession;
     if (!ms) return;
@@ -208,9 +208,9 @@
     } catch (e) {
       if (session !== s) return;
       stop(s);
-      return CPIP.toast("Could not open Caption pip", "Caption pip");
+      return CPIP.toast("Could not open", "Caption pip");
     }
-    /* Stopped while opening */
+    /* Exit if stopped while opening */
     if (session !== s) return exitIf(video);
     bind(s, video, "leavepictureinpicture", () => stop(s));
     CPIP.updateButton();
@@ -219,10 +219,10 @@
   async function start(video) {
     if (!video) return CPIP.toast("No video found here", "Caption pip");
     if (video.mediaKeys) {
-      CPIP.toast("protected by DRM", "Caption pip");
+      CPIP.toast("Protected by DRM, opening without captions", "Caption pip");
       return startNative(video);
     }
-    if (!document.pictureInPictureEnabled) return CPIP.toast("Caption pip is not available", "Caption pip");
+    if (!document.pictureInPictureEnabled) return CPIP.toast("Not available in this browser", "Caption pip");
     const s = {
       video,
       canvas: document.createElement("canvas"),
@@ -247,7 +247,7 @@
       try {
         s.ctx.getImageData(0, 0, 1, 1);
       } catch (e) {
-        throw new Error("This video blocks capture");
+        throw Object.assign(new Error("This video blocks capture"), { cpip: true });
       }
       s.out.className = "cpip-out";
       s.out.muted = true;
@@ -257,13 +257,14 @@
       await s.out.play();
       if (session !== s) return;
       s.win = await s.out.requestPictureInPicture();
-      /* Stopped while opening: close the window we just got */
+      /* Close PiP if stopped while opening */
       if (session !== s) return exitIf(s.out);
     } catch (e) {
-      /* A stop() during the await is not an error */
+      /* Ignore stop while opening */
       if (session !== s) return;
       stop(s);
-      return CPIP.toast(e && e.message ? e.message : "Could not open Caption pip", "Caption pip");
+      /* Hide browser errors */
+      return CPIP.toast(e && e.cpip ? e.message : "Could not open", "Caption pip");
     }
 
     startTicker(s);

@@ -218,3 +218,5 @@ video.cpip-out {
   transition: opacity 0.2s ease;
 }
 #cpip-toast.cpip-show { opacity: 1; }
+/* Dim name before message */
+#cpip-toast .cpip-who { opacity: 0.7; }
