@@ -21,9 +21,6 @@ If the captions are not found, press **`Alt`** + **`Shift`** + **`S`** (or use t
 
 The extension draws the video and the captions together on a canvas, then streams that canvas to your browser's built-in Picture-in-Picture window.
 
-> [!NOTE]
-> Since the Picture-in-Picture window plays a live stream, it displays **LIVE** instead of a timeline *(to seek, use the original tab)*.
-
 > [!IMPORTANT]
 > It may not work with protected videos (DRM) or videos that block capture (CORS).
 
