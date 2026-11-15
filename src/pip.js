@@ -184,6 +184,11 @@
       pause: () => video.pause(),
       seekbackward: () => (video.currentTime = Math.max(0, video.currentTime - 10)),
       seekforward: () => (video.currentTime = video.currentTime + 10),
+      seekto: (d) => {
+        if (d.seekTime == null) return;
+        if (d.fastSeek && typeof video.fastSeek === "function") video.fastSeek(d.seekTime);
+        else video.currentTime = d.seekTime;
+      },
     };
     for (const [name, fn] of Object.entries(acts)) {
       try {
@@ -195,6 +200,29 @@
         });
       } catch (e) {}
     }
+
+    /* Report original video position to show a timeline */
+    if (typeof ms.setPositionState !== "function") return;
+    const sync = () => {
+      try {
+        ms.playbackState = video.paused ? "paused" : "playing";
+        const duration = video.duration;
+        if (!Number.isFinite(duration) || duration <= 0) return ms.setPositionState();
+        ms.setPositionState({
+          duration,
+          position: CPIP.clamp(video.currentTime || 0, 0, duration),
+          playbackRate: video.playbackRate || 1,
+        });
+      } catch (e) {}
+    };
+    for (const type of ["durationchange", "ratechange", "seeked", "play", "pause", "timeupdate"]) bind(s, video, type, sync);
+    s.undo.push(() => {
+      try {
+        ms.setPositionState();
+        ms.playbackState = "none";
+      } catch (e) {}
+    });
+    sync();
   }
 
   const exitIf = (el) => document.pictureInPictureElement === el && document.exitPictureInPicture().catch(() => {});
@@ -204,6 +232,9 @@
     const s = { mode: "native", video, undo: [] };
     session = s;
     try {
+      /* Avoid players block PiP */
+      video.disablePictureInPicture = false;
+      video.removeAttribute("disablepictureinpicture");
       await video.requestPictureInPicture();
     } catch (e) {
       if (session !== s) return;
@@ -247,7 +278,9 @@
       try {
         s.ctx.getImageData(0, 0, 1, 1);
       } catch (e) {
-        throw Object.assign(new Error("This video blocks capture"), { cpip: true });
+        stop(s);
+        CPIP.toast("Opening without captions", "Caption pip");
+        return startNative(video);
       }
       s.out.className = "cpip-out";
       s.out.muted = true;
@@ -263,8 +296,7 @@
       /* Ignore stop while opening */
       if (session !== s) return;
       stop(s);
-      /* Hide browser errors */
-      return CPIP.toast(e && e.cpip ? e.message : "Could not open", "Caption pip");
+      return startNative(video);
     }
 
     startTicker(s);
