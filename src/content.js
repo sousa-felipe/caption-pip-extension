@@ -333,17 +333,17 @@
   /* Buttons */
   const ICON =
     '<svg viewBox="0 0 36 36" aria-hidden="true">' +
-    '<path fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" d="M29 19V12a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v12a4 4 0 0 0 4 4h4"/>' +
-    '<rect x="9" y="13" width="6.5" height="3.2" rx="1" fill="#fff"/>' +
-    '<path fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" d="M23 25.4a3.4 3.4 0 1 0 0 5.2M32.4 25.4a3.4 3.4 0 1 0 0 5.2"/></svg>';
+    '<rect x="3" y="6" width="30" height="24" rx="1.5" fill="none" stroke="#fff" stroke-width="3"/>' +
+    '<rect x="18" y="18" width="10.5" height="7.5" fill="#fff"/></svg>';
 
   /* Pick icon */
   const ICON_PICK =
-    '<svg viewBox="0 0 36 36" aria-hidden="true"><g transform="translate(4.8 5.4) scale(0.78)">' +
-    '<defs><clipPath id="cpip-lens"><circle cx="15" cy="15" r="11.5"/></clipPath></defs>' +
-    '<circle cx="15" cy="15" r="11.5" fill="none" stroke="#fff" stroke-width="3.72"/>' +
-    '<path fill="none" stroke="#fff" stroke-width="3.72" stroke-linecap="round" d="M24 24L31.5 31.5"/>' +
-    '<path clip-path="url(#cpip-lens)" fill="none" stroke="#fff" stroke-width="2.82" stroke-linecap="round" d="M12.53 11.9a4 4 0 1 0 0 6.2M23.53 11.9a4 4 0 1 0 0 6.2"/></g></svg>';
+    '<svg viewBox="0 0 36 36" aria-hidden="true">' +
+    '<g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M13.5 19.5V8.25a2.25 2.25 0 0 1 4.5 0V9.5h2a1.75 1.75 0 0 1 1.75 1.75h1.75a1.75 1.75 0 0 1 1.75 1.75' +
+    'h1.75a1.75 1.75 0 0 1 1.75 1.75V23.5c0 3.5-2 6-4.5 7H15C12.5 27.5 9.5 23 7.5 19c-.6-1.2.4-2.3 1.6-2' +
+    'c1.8.4 3.4 1.3 4.4 2.5Z"/>' +
+    '<path d="M18 9.5v5.5M21.75 11.25v4.25M25.25 13v3"/></g></svg>';
 
   /* Plus icon */
   const PLUS = '<svg viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 1v7M1 4.5h7" fill="none" stroke="#fff" stroke-width="1"/></svg>';
@@ -420,8 +420,8 @@
     const top = clamp(r.top, 0, innerHeight) + 10 + "px";
     const right = clamp(r.right, 0, innerWidth) - 10;
     btn.style.top = pickBtn.style.top = top;
-    pickBtn.style.left = right - 44 + "px";
-    btn.style.left = right - 44 - 48 + "px";
+    btn.style.left = right - 49 + "px";
+    pickBtn.style.left = right - 49 - 43 + "px";
   }
 
   const hideButton = () => [btn, pickBtn].forEach((b) => b && b.classList.remove("cpip-show"));
