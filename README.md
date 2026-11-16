@@ -22,7 +22,10 @@ If the captions are not found, press **`Alt`** + **`Shift`** + **`S`** (or use t
 The extension draws the video and the captions together on a canvas, then streams that canvas to your browser's built-in Picture-in-Picture window.
 
 > [!IMPORTANT]
-> It may not work with protected videos (DRM) or videos that block capture (CORS).
+> When a video is DRM-protected or its frames can't be drawn due to CORS restrictions, the extension moves the `<video>` itself into a [Document Picture-in-Picture](https://developer.chrome.com/docs/web-platform/document-picture-in-picture) window that mimics Chromium's built-in player and overlays the captions.
+
+> [!WARNING]
+> If Document Picture-in-Picture isn't supported, no captions are found, or an error occurs, your browser's native Picture-in-Picture opens instead, without captions.
 
 ## Release History
 

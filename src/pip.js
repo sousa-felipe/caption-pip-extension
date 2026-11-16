@@ -1,5 +1,7 @@
 (() => {
-  if (window.__cpipLoaded) return;
+  const loaded = (window.__cpipLoaded = window.__cpipLoaded || {});
+  if (loaded.pip || document.documentElement.hasAttribute("data-cpip-pip")) return;
+  loaded.pip = true;
   const CPIP = (window.CPIP = window.CPIP || {});
 
   const FPS = 60;
@@ -10,8 +12,8 @@
   const SCAN_PAUSED_MS = 500;
   const KEEPALIVE_MS = 500;
   const STALL_MS = 500;
-  const BOOST = 1.2;
-  const MIN_PX = 15;
+  const FONT_BOOST = 1.2;
+  const MIN_FONT_PX = 15;
 
   let session = null;
 
@@ -33,7 +35,7 @@
   }
 
   function drawBlock(ctx, cv, b, c, sx, sy, minFs) {
-    const fs = Math.max(b.fs * sx * BOOST, minFs);
+    const fs = Math.max(b.fs * sx * FONT_BOOST, minFs);
     ctx.font = `${b.weight} ${fs}px ${b.font}`;
     ctx.textAlign = b.leftAlign ? "left" : "center";
     ctx.textBaseline = "alphabetic";
@@ -79,7 +81,7 @@
       } catch (e) {}
     }
     /* Scale font to PiP window width */
-    const minFs = MIN_PX * (cv.width / (s.win ? s.win.width : cv.width));
+    const minFs = MIN_FONT_PX * (cv.width / (s.win ? s.win.width : cv.width));
     for (const b of s.caps.blocks) drawBlock(ctx, cv, b, c, sx, sy, minFs);
   }
 
@@ -115,7 +117,7 @@
     }
   }
 
-  function frame(s) {
+  function tick(s) {
     if (session !== s) return;
     const t = performance.now();
     if (!s.video.isConnected) return stop(s);
@@ -158,27 +160,27 @@
 
   /* Anti low freq ticker */
   function startTicker(s) {
-    const tick = () => frame(s);
+    const onTick = () => tick(s);
     const ms = Math.round(1000 / FPS);
     try {
       const url = URL.createObjectURL(new Blob(["setInterval(()=>postMessage(0)," + ms + ")"]));
       s.worker = new Worker(url);
       URL.revokeObjectURL(url);
-      s.worker.onmessage = tick;
+      s.worker.onmessage = onTick;
       s.worker.onerror = () => {
         s.worker.terminate();
         s.worker = null;
-        if (session === s && !s.timer) s.timer = setInterval(tick, ms);
+        if (session === s && !s.timer) s.timer = setInterval(onTick, ms);
       };
     } catch (e) {
-      s.timer = setInterval(tick, ms);
+      s.timer = setInterval(onTick, ms);
     }
   }
 
   /* Bind media keys to video */
   function bindMediaSession(s, video) {
-    const ms = navigator.mediaSession;
-    if (!ms) return;
+    const media = navigator.mediaSession;
+    if (!media) return;
     const acts = {
       play: () => video.play(),
       pause: () => video.pause(),
@@ -192,23 +194,25 @@
     };
     for (const [name, fn] of Object.entries(acts)) {
       try {
-        ms.setActionHandler(name, fn);
+        media.setActionHandler(name, fn);
         s.undo.push(() => {
           try {
-            ms.setActionHandler(name, null);
+            media.setActionHandler(name, null);
           } catch (e) {}
         });
       } catch (e) {}
     }
+    /* Restore site handlers */
+    s.undo.push(() => window.dispatchEvent(new CustomEvent("cpip-ms", { detail: "restore" })));
 
     /* Report original video position to show a timeline */
-    if (typeof ms.setPositionState !== "function") return;
+    if (typeof media.setPositionState !== "function") return;
     const sync = () => {
       try {
-        ms.playbackState = video.paused ? "paused" : "playing";
+        media.playbackState = video.paused ? "paused" : "playing";
         const duration = video.duration;
-        if (!Number.isFinite(duration) || duration <= 0) return ms.setPositionState();
-        ms.setPositionState({
+        if (!Number.isFinite(duration) || duration <= 0) return media.setPositionState();
+        media.setPositionState({
           duration,
           position: CPIP.clamp(video.currentTime || 0, 0, duration),
           playbackRate: video.playbackRate || 1,
@@ -218,8 +222,8 @@
     for (const type of ["durationchange", "ratechange", "seeked", "play", "pause", "timeupdate"]) bind(s, video, type, sync);
     s.undo.push(() => {
       try {
-        ms.setPositionState();
-        ms.playbackState = "none";
+        media.setPositionState();
+        media.playbackState = "none";
       } catch (e) {}
     });
     sync();
@@ -247,12 +251,17 @@
     CPIP.updateButton();
   }
 
+  /* Protected video, use Document PiP */
+  function startProtected(video) {
+    if (!window.documentPictureInPicture) return startNative(video);
+    if (CPIP.hasCaptions(video)) return CPIP.startDocPip(video);
+    CPIP.toast("No captions found", "Caption pip");
+    return startNative(video);
+  }
+
   async function start(video) {
     if (!video) return CPIP.toast("No video found here", "Caption pip");
-    if (video.mediaKeys) {
-      CPIP.toast("Protected by DRM, opening without captions", "Caption pip");
-      return startNative(video);
-    }
+    if (video.mediaKeys) return startProtected(video);
     if (!document.pictureInPictureEnabled) return CPIP.toast("Not available in this browser", "Caption pip");
     const s = {
       video,
@@ -279,8 +288,7 @@
         s.ctx.getImageData(0, 0, 1, 1);
       } catch (e) {
         stop(s);
-        CPIP.toast("Opening without captions", "Caption pip");
-        return startNative(video);
+        return startProtected(video);
       }
       s.out.className = "cpip-out";
       s.out.muted = true;
@@ -338,6 +346,9 @@
     s.undo.forEach((fn) => fn());
     if (s.mode === "native") {
       exitIf(s.video);
+    } else if (s.close) {
+      /* Document PiP */
+      s.close();
     } else {
       exitIf(s.out);
       if (s.out.srcObject) s.out.srcObject.getTracks().forEach((t) => t.stop());
@@ -346,7 +357,15 @@
     CPIP.updateButton();
   }
 
-  CPIP.start = start;
-  CPIP.stop = stop;
-  CPIP.active = () => !!session;
+  /* Share with other files */
+  Object.assign(CPIP, {
+    start,
+    stop,
+    startNative,
+    bind,
+    bindMediaSession,
+    active: () => !!session,
+    begin: (s) => (session = s),
+    current: (s) => session === s,
+  });
 })();

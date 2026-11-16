@@ -1,12 +1,14 @@
 (() => {
-  if (window.__cpipLoaded) return;
+  const loaded = (window.__cpipLoaded = window.__cpipLoaded || {});
+  if (loaded.captions || document.documentElement.hasAttribute("data-cpip-pip")) return;
+  loaded.captions = true;
   const CPIP = (window.CPIP = window.CPIP || {});
 
   /* Match whole words only */
   const CANVAS_NAME = /subtitle|caption|octopus|libass|jassub|danmaku|(^|[^a-z])(subs?|ass|text-?track)([^a-z]|$)/i;
 
   /* Caption sources */
-  const KNOWN = [
+  const CAPTION_SEL = [
     ".jw-text-track-cue",
     ".vjs-text-track-cue",
     ".plyr__caption",
@@ -57,7 +59,7 @@
     return !invisible(getComputedStyle(el));
   }
 
-  const clear = (c) => !c || c === "transparent" || /,\s*0\)$/.test(c);
+  const isClear = (c) => !c || c === "transparent" || /,\s*0\)$/.test(c);
   const norm = (t) => t.replace(/\s+/g, " ").trim();
 
   function blockOf(el, root) {
@@ -66,7 +68,7 @@
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
     let bg = cs.backgroundColor;
-    for (let n = el.parentElement, i = 0; clear(bg) && n && i < 2 && n !== root; i++, n = n.parentElement) {
+    for (let n = el.parentElement, i = 0; isClear(bg) && n && i < 2 && n !== root; i++, n = n.parentElement) {
       bg = getComputedStyle(n).backgroundColor;
     }
     return {
@@ -79,7 +81,7 @@
       color: cs.color,
       font: cs.fontFamily,
       weight: cs.fontWeight,
-      bg: clear(bg) ? "" : bg,
+      bg: isClear(bg) ? "" : bg,
     };
   }
 
@@ -88,12 +90,12 @@
     try {
       list = CPIP.customSel
         ? CPIP.qsaAll([...new Set([...CPIP.knownRoots(), ...roots])], CPIP.customSel)
-        : CPIP.qsaAll(roots, KNOWN);
-    } catch (e) {}
+        : CPIP.qsaAll(roots, CAPTION_SEL);
+    } catch (e) {
+    }
     const box = v.getBoundingClientRect();
     list = list.filter((el) => !CPIP.isOurs(el) && (CPIP.customSel || !blocked(el, root, v)) && shown(el, box));
     /* Avoid lines drawn twice */
-    list = [...new Set(list)];
     list = list.filter((a) => !list.some((b) => b !== a && a.contains(b)));
     return list.map((el) => blockOf(el, root)).filter(Boolean);
   }
@@ -208,5 +210,78 @@
     return { blocks: blocks.concat(cues), layers: layersOf(roots, c), c, root };
   }
 
+  /* Read captions from the page for Document PiP */
+  function scanDoc(s) {
+    const blocks = [];
+    const box = s.placeholder.getBoundingClientRect();
+    const custom = CPIP.customSel;
+    try {
+      const roots = CPIP.rootsIn(s.playerRoot);
+      let els = CPIP.qsaAll(roots, custom || CAPTION_SEL).filter((el) => {
+        if (CPIP.isOurs(el) || (!custom && blocked(el, s.playerRoot, null))) return false;
+        /* Skip faded text */
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return false;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        return cx >= box.left && cx <= box.right && cy >= box.top && cy <= box.bottom;
+      });
+      els = els.filter((a) => !els.some((b) => b !== a && a.contains(b)));
+      for (const el of els) {
+        const text = (el.innerText || "").trim();
+        if (!text || text.length > 300) continue;
+        const cs = getComputedStyle(el);
+        blocks.push({
+          text,
+          color: cs.color,
+          bg: isClear(cs.backgroundColor) ? "" : cs.backgroundColor,
+          font: cs.fontFamily,
+          weight: cs.fontWeight,
+          shadow: cs.textShadow,
+          size: box.height ? parseFloat(cs.fontSize) / box.height : 0,
+        });
+      }
+    } catch (e) {
+      console.warn("[Caption pip] page caption scan failed", e);
+    }
+    try {
+      for (const t of s.video.textTracks) {
+        if (t.mode === "disabled" || !/subtitles|captions/.test(t.kind) || !t.activeCues) continue;
+        for (const cue of t.activeCues) {
+          const text = String(cue.text || "").replace(/<[^>]+>/g, "").trim();
+          if (text) blocks.push({ text, color: "#fff", bg: "" });
+        }
+      }
+    } catch (e) {
+      console.warn("[Caption pip] text track scan failed", e);
+    }
+    const seen = new Set();
+    return blocks.filter((b) => {
+      const k = norm(b.text);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  /* False only when no captions exist */
+  function hasCaptions(v) {
+    if (CPIP.customSel) return true;
+    try {
+      if ([...v.textTracks].some((t) => /subtitles|captions/.test(t.kind))) return true;
+      const c = CPIP.content(v);
+      const roots = CPIP.rootsIn(CPIP.playerRoot(v, c));
+      if (CPIP.qsaAll(roots, CAPTION_SEL).some((el) => !CPIP.isOurs(el))) return true;
+      return layersOf(roots, c).length > 0;
+    } catch (e) {
+      console.warn("[Caption pip] caption check failed", e);
+      return true;
+    }
+  }
+
+  /* Share with pip.js and documentpip.js */
+  CPIP.hasCaptions = hasCaptions;
   CPIP.scan = scan;
+  CPIP.scanDoc = scanDoc;
 })();
