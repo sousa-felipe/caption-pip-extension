@@ -1,9 +1,10 @@
 (() => {
   /* Core */
-  if (window.__cpipLoaded) return;
-  window.__cpipLoaded = true;
+  const loaded = (window.__cpipLoaded = window.__cpipLoaded || {});
+  if (loaded.content || document.documentElement.hasAttribute("data-cpip-pip")) return;
+  loaded.content = true;
 
-  /* Share with captions.js and pip.js */
+  /* Share with captions.js, pip.js and documentpip.js */
   const CPIP = (window.CPIP = window.CPIP || {});
   CPIP.customSel = "";
 
@@ -29,7 +30,7 @@
   let hoverFrame = null;
   let picking = false;
   let lastRefresh = 0;
-  const kids = new Map();
+  const childFrames = new Map();
   const shadows = new Set();
 
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
@@ -99,7 +100,7 @@
   function refreshVideos() {
     lastRefresh = performance.now();
     videos = qsaAll(knownRoots(), "video").filter(usable);
-    if (videos.length) ensureButton();
+    if (videos.length) ensureButtons();
     announce();
   }
 
@@ -186,7 +187,7 @@
     learnShadows();
     refreshVideos();
     kidFrames();
-    if (!CPIP.active() && !videos.length && kids.size) return forward();
+    if (!CPIP.active() && !videos.length && childFrames.size) return sendToFrame();
     if (CPIP.active()) CPIP.stop();
     else CPIP.start(targetVideo());
   }
@@ -256,8 +257,8 @@
   let sent = "";
   function announce() {
     if (window.top === window) return;
-    const k = [...kids.values()];
-    const has = videos.length > 0 || kids.size > 0;
+    const k = [...childFrames.values()];
+    const has = videos.length > 0 || childFrames.size > 0;
     const on = CPIP.active() || k.some((x) => x.on);
     const playing = videos.some((v) => !v.paused) || k.some((x) => x.playing);
     const key = `${has}|${on}|${playing}`;
@@ -270,8 +271,8 @@
   function kidFrames() {
     const live = new Set();
     for (let i = 0; i < frames.length; i++) live.add(frames[i]);
-    for (const w of kids.keys()) if (!live.has(w)) kids.delete(w);
-    return qsaAll(knownRoots(), "iframe").filter((f) => kids.has(f.contentWindow));
+    for (const w of childFrames.keys()) if (!live.has(w)) childFrames.delete(w);
+    return qsaAll(knownRoots(), "iframe").filter((f) => childFrames.has(f.contentWindow));
   }
 
   /* Find iframe under pointer */
@@ -291,15 +292,15 @@
   /* Pick active frame, then playing, then biggest */
   function bestKid() {
     const score = (f) => {
-      const k = kids.get(f.contentWindow);
+      const k = childFrames.get(f.contentWindow);
       return (k.on ? 4e9 : 0) + (k.playing ? 2e9 : 0) + area(f);
     };
     const f = kidFrames().sort((a, b) => score(b) - score(a))[0];
-    return f ? f.contentWindow : [...kids.keys()][0] || null;
+    return f ? f.contentWindow : [...childFrames.keys()][0] || null;
   }
 
   /* Pass action to player frame */
-  function forward(win, what = "toggle") {
+  function sendToFrame(win, what = "toggle") {
     const w = win || bestKid();
     if (w) send(w, { [MSG]: what });
   }
@@ -317,8 +318,8 @@
     if (!d || typeof d !== "object" || !(MSG in d) || !e.source || e.source === window) return;
     const fromParent = e.source === parent;
     if (d[MSG] === "video" && isChild(e.source)) {
-      if (d.has) kids.set(e.source, { on: !!d.on, playing: !!d.playing });
-      else kids.delete(e.source);
+      if (d.has) childFrames.set(e.source, { on: !!d.on, playing: !!d.playing });
+      else childFrames.delete(e.source);
       updateButton();
     } else if (d[MSG] === "toggle" && fromParent) {
       toggle();
@@ -329,24 +330,6 @@
       announce();
     }
   });
-
-  /* Buttons */
-  const ICON =
-    '<svg viewBox="0 0 36 36" aria-hidden="true">' +
-    '<rect x="3" y="6" width="30" height="24" rx="1.5" fill="none" stroke="#fff" stroke-width="3"/>' +
-    '<rect x="18" y="18" width="10.5" height="7.5" fill="#fff"/></svg>';
-
-  /* Pick icon */
-  const ICON_PICK =
-    '<svg viewBox="0 0 36 36" aria-hidden="true">' +
-    '<g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
-    '<path d="M13.5 19.5V8.25a2.25 2.25 0 0 1 4.5 0V9.5h2a1.75 1.75 0 0 1 1.75 1.75h1.75a1.75 1.75 0 0 1 1.75 1.75' +
-    'h1.75a1.75 1.75 0 0 1 1.75 1.75V23.5c0 3.5-2 6-4.5 7H15C12.5 27.5 9.5 23 7.5 19c-.6-1.2.4-2.3 1.6-2' +
-    'c1.8.4 3.4 1.3 4.4 2.5Z"/>' +
-    '<path d="M18 9.5v5.5M21.75 11.25v4.25M25.25 13v3"/></g></svg>';
-
-  /* Plus icon */
-  const PLUS = '<svg viewBox="0 0 9 9" aria-hidden="true"><path d="M4.5 1v7M1 4.5h7" fill="none" stroke="#fff" stroke-width="1"/></svg>';
 
   /* Shortcuts */
   const KEYS_PIP = ["Alt", "Shift", "P"];
@@ -361,7 +344,7 @@
     keys.forEach((key, i) => {
       if (i) {
         const p = span("", "cpip-plus");
-        p.innerHTML = PLUS;
+        p.innerHTML = CPIP.ICONS.PLUS;
         k.appendChild(p);
       }
       k.appendChild(span(key, "cpip-key"));
@@ -369,7 +352,7 @@
     t.replaceChildren(span(label), k);
   }
 
-  let btn = null;
+  let pipBtn = null;
   let pickBtn = null;
   let btnLabel = "";
 
@@ -387,44 +370,44 @@
     return b;
   }
 
-  function ensureButton() {
-    if (!btn) {
-      btn = makeButton("cpip-button", ICON, (_, win) => (win ? forward(win) : toggle()));
+  function ensureButtons() {
+    if (!pipBtn) {
+      pipBtn = makeButton("cpip-button", CPIP.ICONS.PIP, (_, win) => (win ? sendToFrame(win) : toggle()));
       updateButton();
     }
     if (!pickBtn) {
-      pickBtn = makeButton("cpip-pick", ICON_PICK, (_, win) => (win ? forward(win, "pick") : startPick()));
+      pickBtn = makeButton("cpip-pick", CPIP.ICONS.PICK, (_, win) => (win ? sendToFrame(win, "pick") : startPick()));
       pickBtn.setAttribute("aria-label", `Pick caption (${keysLabel(KEYS_PICK)})`);
       setTip(pickBtn, "Pick caption", KEYS_PICK);
     }
     const m = mount();
-    if (btn.parentNode !== m) m.appendChild(btn);
+    if (pipBtn.parentNode !== m) m.appendChild(pipBtn);
     if (pickBtn.parentNode !== m) m.appendChild(pickBtn);
   }
 
   function updateButton() {
     announce();
-    if (!btn) return;
-    const on = hoverFrame && hoverFrame.isConnected ? !!(kids.get(hoverFrame.contentWindow) || {}).on : CPIP.active();
+    if (!pipBtn) return;
+    const on = hoverFrame && hoverFrame.isConnected ? !!(childFrames.get(hoverFrame.contentWindow) || {}).on : CPIP.active();
     const label = on ? "Exit caption pip" : "Caption pip";
-    btn.classList.toggle("cpip-on", on);
+    pipBtn.classList.toggle("cpip-on", on);
     /* Update tooltip on label change */
     if (label === btnLabel) return;
     btnLabel = label;
-    btn.setAttribute("aria-label", `${label} (${keysLabel(KEYS_PIP)})`);
-    setTip(btn, label, KEYS_PIP);
+    pipBtn.setAttribute("aria-label", `${label} (${keysLabel(KEYS_PIP)})`);
+    setTip(pipBtn, label, KEYS_PIP);
   }
 
-  function placeButton(v) {
+  function placeButtons(v) {
     const r = v.getBoundingClientRect();
     const top = clamp(r.top, 0, innerHeight) + 10 + "px";
     const right = clamp(r.right, 0, innerWidth) - 10;
-    btn.style.top = pickBtn.style.top = top;
-    btn.style.left = right - 49 + "px";
+    pipBtn.style.top = pickBtn.style.top = top;
+    pipBtn.style.left = right - 49 + "px";
     pickBtn.style.left = right - 49 - 43 + "px";
   }
 
-  const hideButton = () => [btn, pickBtn].forEach((b) => b && b.classList.remove("cpip-show"));
+  const hideButtons = () => [pipBtn, pickBtn].forEach((b) => b && b.classList.remove("cpip-show"));
 
   /* Check hot zone, top right of video */
   function inHotzone(el, x, y) {
@@ -443,18 +426,18 @@
       lastMove = now;
       /* Refresh videos resized without events */
       if (learnFromPath(e) || now - lastRefresh > 1000) refreshVideos();
-      if (!videos.length && !kids.size) return;
+      if (!videos.length && !childFrames.size) return;
       const v = videoAt(e.clientX, e.clientY);
       const f = v ? null : frameAt(e.clientX, e.clientY);
       /* Reset hover on pointer leave */
       hoverVideo = v;
       hoverFrame = f;
-      if (!v && !f) return hideButton();
-      if (!inHotzone(v || f, e.clientX, e.clientY)) return hideButton();
-      ensureButton();
+      if (!v && !f) return hideButtons();
+      if (!inHotzone(v || f, e.clientX, e.clientY)) return hideButtons();
+      ensureButtons();
       updateButton();
-      placeButton(v || f);
-      [btn, pickBtn].forEach((b) => b.classList.add("cpip-show"));
+      placeButtons(v || f);
+      [pipBtn, pickBtn].forEach((b) => b.classList.add("cpip-show"));
     },
     { capture: true, passive: true }
   );
@@ -463,11 +446,11 @@
   document.documentElement.addEventListener("mouseleave", () => {
     if (picking) return;
     hoverVideo = hoverFrame = null;
-    hideButton();
+    hideButtons();
   });
 
   /* Caption picker */
-  let hl = null;
+  let highlight = null;
   let hint = null;
 
   function cssPath(el) {
@@ -528,9 +511,9 @@
       pickRaf = 0;
       if (!picking) return;
       const el = textAt(...pickXY);
-      if (!el) return (hl.style.display = "none");
+      if (!el) return (highlight.style.display = "none");
       const r = el.getBoundingClientRect();
-      hl.style.cssText = `display:block;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+      highlight.style.cssText = `display:block;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
     });
   }
 
@@ -550,18 +533,16 @@
     learnShadows();
     refreshVideos();
     kidFrames();
-    if (!videos.length && kids.size) return forward(null, "pick");
+    if (!videos.length && childFrames.size) return sendToFrame(null, "pick");
     if (!videos.length) return toast("No video found here", "Pick caption");
-    const pv = targetVideo();
-    if (pv && pv.mediaKeys) return toast("Protected by DRM", "Pick caption");
     picking = true;
-    hideButton();
-    hl = document.createElement("div");
-    hl.id = "cpip-hl";
+    hideButtons();
+    highlight = document.createElement("div");
+    highlight.id = "cpip-hl";
     hint = document.createElement("div");
     hint.id = "cpip-hint";
     hint.append(span("Click the caption text while it is on screen"), span("Esc", "cpip-key"), span("Cancel"), span("Del", "cpip-key"), span("Reset"));
-    mount().append(hl, hint);
+    mount().append(highlight, hint);
     centerOnPlayer(hint);
     window.addEventListener("mousemove", onPickMove, true);
     PICK_EVENTS.forEach((t) => window.addEventListener(t, pickHandler(t), true));
@@ -571,7 +552,7 @@
     picking = false;
     cancelAnimationFrame(pickRaf);
     pickRaf = 0;
-    hl && hl.remove();
+    highlight && highlight.remove();
     hint && hint.remove();
     window.removeEventListener("mousemove", onPickMove, true);
     PICK_EVENTS.forEach((t) => window.removeEventListener(t, pickHandler(t), true));
@@ -626,14 +607,14 @@
     true
   );
 
-  /* Share with captions.js and pip.js */
+  /* Share with captions.js, pip.js and documentpip.js */
   Object.assign(CPIP, { clamp, isOurs, hasText, content, playerRoot, toast, updateButton, rootsIn, qsaAll, knownRoots });
 
   /* Lifecycle */
   MEDIA_EVENTS.forEach((t) => window.addEventListener(t, onMedia, true));
   document.addEventListener("fullscreenchange", () => {
     scheduleRefresh();
-    if (btn) ensureButton();
+    if (pipBtn) ensureButtons();
   });
   window.addEventListener("pagehide", () => {
     CPIP.stop();

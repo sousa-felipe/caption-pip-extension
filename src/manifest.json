@@ -17,7 +17,7 @@
       "all_frames": true,
       "match_about_blank": true,
       "css": ["content.css"],
-      "js": ["captions.js", "pip.js", "content.js"],
+      "js": ["icons.js", "captions.js", "pip.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
