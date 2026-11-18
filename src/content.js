@@ -34,7 +34,7 @@
   const shadows = new Set();
 
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
-  const isOurs = (el) => !!el.closest?.("#cpip-button,#cpip-pick,#cpip-hint,#cpip-toast,#cpip-hl,.cpip-out");
+  const isOurs = (el) => !!el.closest?.("#cpip-button,#cpip-pick,#cpip-menu,#cpip-hint,#cpip-toast,#cpip-hl,.cpip-out");
   const area = (v) => {
     const r = v.getBoundingClientRect();
     return r.width * r.height;
@@ -367,7 +367,64 @@
       onClick(e, hoverFrame && hoverFrame.isConnected && !hoverVideo ? hoverFrame.contentWindow : null);
     });
     b.addEventListener("mousedown", (e) => e.stopPropagation());
+    b.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showMenu();
+    });
     return b;
+  }
+
+  /* Right click menu on the buttons */
+  let menuEl = null;
+  let buttonsOff = false;
+
+  function closeMenu() {
+    if (!menuEl) return;
+    menuEl.remove();
+    menuEl = null;
+    window.removeEventListener("mousedown", onMenuOutside, true);
+    window.removeEventListener("keydown", closeMenu, true);
+    window.removeEventListener("blur", closeMenu);
+    window.removeEventListener("scroll", closeMenu, true);
+  }
+
+  function onMenuOutside(e) {
+    if (menuEl && !e.composedPath().includes(menuEl)) closeMenu();
+  }
+
+  function showMenu() {
+    closeMenu();
+    menuEl = document.createElement("div");
+    menuEl.id = "cpip-menu";
+    const addItem = (label, onPick) => {
+      const item = span(label, "cpip-item");
+      item.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeMenu();
+        onPick && onPick();
+      });
+      menuEl.appendChild(item);
+    };
+    addItem("Hide buttons", () => {
+      buttonsOff = true;
+      hoverVideo = hoverFrame = null;
+      hideButtons();
+    });
+    menuEl.appendChild(span("", "cpip-sep"));
+    addItem("Close");
+    menuEl.addEventListener("contextmenu", (e) => e.preventDefault());
+    mount().appendChild(menuEl);
+    const r = menuEl.getBoundingClientRect();
+    /* Sit under the buttons, right aligned, like the hover tooltip */
+    const b = pipBtn.getBoundingClientRect();
+    menuEl.style.left = clamp(b.right - r.width, 0, innerWidth - r.width) + "px";
+    menuEl.style.top = clamp(b.bottom + 6, 0, innerHeight - r.height) + "px";
+    window.addEventListener("mousedown", onMenuOutside, true);
+    window.addEventListener("keydown", closeMenu, true);
+    window.addEventListener("blur", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
   }
 
   function ensureButtons() {
@@ -432,8 +489,10 @@
       /* Reset hover on pointer leave */
       hoverVideo = v;
       hoverFrame = f;
-      if (!v && !f) return hideButtons();
-      if (!inHotzone(v || f, e.clientX, e.clientY)) return hideButtons();
+      /* Leaving the hot zone re-arms the buttons after "Hide buttons" */
+      if (!v && !f) return (buttonsOff = false), hideButtons();
+      if (!inHotzone(v || f, e.clientX, e.clientY)) return (buttonsOff = false), hideButtons();
+      if (buttonsOff) return;
       ensureButtons();
       updateButton();
       placeButtons(v || f);
@@ -446,6 +505,7 @@
   document.documentElement.addEventListener("mouseleave", () => {
     if (picking) return;
     hoverVideo = hoverFrame = null;
+    buttonsOff = false;
     hideButtons();
   });
 

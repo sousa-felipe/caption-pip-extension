@@ -158,6 +158,39 @@
   text-align: center;
 }
 
+/* Right click menu */
+#cpip-menu {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  min-width: 220px;
+  padding: 6px 0;
+  border-radius: 8px;
+  background: #1f1f1f;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 4px 16px rgba(0, 0, 0, 0.5);
+  font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+}
+#cpip-menu .cpip-item {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 24px 0 52px;
+  color: #e3e3e3;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+#cpip-menu .cpip-sep {
+  display: block;
+  height: 1px;
+  margin: 6px 0;
+  background: rgba(255, 255, 255, 0.2);
+}
+#cpip-menu .cpip-item:hover { background: rgba(255, 255, 255, 0.1); }
+
 /* Hidden video that feeds the Picture-in-Picture window */
 video.cpip-out {
   position: fixed !important;

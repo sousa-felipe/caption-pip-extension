@@ -1,4 +1,4 @@
-<h1>
+<h1 align="center">
   <img src="src/img/icons/icon48.png" alt="Caption Pip" width="40" height="40" align="absmiddle">
   Caption Pip Extension
 </h1>
@@ -16,6 +16,9 @@
 Open a video, then press **`Alt`** + **`Shift`** + **`P`** (or use the *Caption pip* **button** on upper right corner).
 
 If the captions are not found, press **`Alt`** + **`Shift`** + **`S`** (or use the *Pick caption* **button**) then click the caption text.
+
+> [!NOTE]
+> If the buttons cover a control of the video player, right click them and choose **Hide buttons**. They stay hidden until your cursor leaves the upper right corner of the video, then show up again on hover.
 
 ## How it works
 
