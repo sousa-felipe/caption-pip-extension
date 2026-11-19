@@ -34,55 +34,55 @@
     return lines;
   }
 
-  function drawBlock(ctx, cv, b, c, sx, sy, minFs) {
-    const fs = Math.max(b.fs * sx * FONT_BOOST, minFs);
-    ctx.font = `${b.weight} ${fs}px ${b.font}`;
-    ctx.textAlign = b.leftAlign ? "left" : "center";
+  function drawBlock(ctx, canvas, block, content, scaleX, scaleY, minFontSize) {
+    const fontSize = Math.max(block.fs * scaleX * FONT_BOOST, minFontSize);
+    ctx.font = `${block.weight} ${fontSize}px ${block.font}`;
+    ctx.textAlign = block.leftAlign ? "left" : "center";
     ctx.textBaseline = "alphabetic";
-    const maxW = CPIP.clamp(b.width * sx, cv.width * 0.25, cv.width * 0.94);
-    const lines = wrap(ctx, b.text, maxW);
-    const lh = fs * 1.25;
-    const cx = CPIP.clamp((b.left + b.width / 2 - c.left) * sx, maxW / 2, cv.width - maxW / 2);
-    const lx = CPIP.clamp((b.left - c.left) * sx, fs * 0.2, Math.max(fs * 0.2, cv.width - maxW));
-    const x = b.leftAlign ? lx : cx;
-    const last = CPIP.clamp((b.bottom - c.top) * sy - fs * 0.28, lines.length * lh, cv.height - fs * 0.3);
+    const maxW = CPIP.clamp(block.width * scaleX, canvas.width * 0.25, canvas.width * 0.94);
+    const lines = wrap(ctx, block.text, maxW);
+    const lineHeight = fontSize * 1.25;
+    const centerX = CPIP.clamp((block.left + block.width / 2 - content.left) * scaleX, maxW / 2, canvas.width - maxW / 2);
+    const leftX = CPIP.clamp((block.left - content.left) * scaleX, fontSize * 0.2, Math.max(fontSize * 0.2, canvas.width - maxW));
+    const x = block.leftAlign ? leftX : centerX;
+    const last = CPIP.clamp((block.bottom - content.top) * scaleY - fontSize * 0.28, lines.length * lineHeight, canvas.height - fontSize * 0.3);
     ctx.lineJoin = "round";
     lines.forEach((line, i) => {
-      const y = last - (lines.length - 1 - i) * lh;
-      if (b.bg) {
-        const w = ctx.measureText(line).width;
-        ctx.fillStyle = b.bg;
-        ctx.fillRect((b.leftAlign ? x : cx - w / 2) - fs * 0.2, y - fs * 0.95, w + fs * 0.4, fs * 1.2);
+      const y = last - (lines.length - 1 - i) * lineHeight;
+      if (block.bg) {
+        const textW = ctx.measureText(line).width;
+        ctx.fillStyle = block.bg;
+        ctx.fillRect((block.leftAlign ? x : centerX - textW / 2) - fontSize * 0.2, y - fontSize * 0.95, textW + fontSize * 0.4, fontSize * 1.2);
       } else {
-        ctx.lineWidth = fs * 0.14;
+        ctx.lineWidth = fontSize * 0.14;
         ctx.strokeStyle = "rgba(0,0,0,0.9)";
         ctx.strokeText(line, x, y);
       }
-      ctx.fillStyle = b.color;
+      ctx.fillStyle = block.color;
       ctx.fillText(line, x, y);
     });
   }
 
   function paint(s) {
-    const { video, canvas: cv, ctx } = s;
-    const c = CPIP.content(video);
-    if (!c.width || !c.height) return;
+    const { video, canvas, ctx } = s;
+    const content = CPIP.content(video);
+    if (!content.width || !content.height) return;
     s.dirty = false;
     s.paintAt = performance.now();
-    const sx = cv.width / c.width;
-    const sy = cv.height / c.height;
+    const scaleX = canvas.width / content.width;
+    const scaleY = canvas.height / content.height;
     try {
-      if (video.readyState >= 2) ctx.drawImage(video, 0, 0, cv.width, cv.height);
+      if (video.readyState >= 2) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     } catch (e) {}
-    for (const l of s.caps.layers) {
-      const r = l.getBoundingClientRect();
+    for (const layer of s.caps.layers) {
+      const box = layer.getBoundingClientRect();
       try {
-        ctx.drawImage(l, (r.left - c.left) * sx, (r.top - c.top) * sy, r.width * sx, r.height * sy);
+        ctx.drawImage(layer, (box.left - content.left) * scaleX, (box.top - content.top) * scaleY, box.width * scaleX, box.height * scaleY);
       } catch (e) {}
     }
     /* Scale font to PiP window width */
-    const minFs = MIN_FONT_PX * (cv.width / (s.win ? s.win.width : cv.width));
-    for (const b of s.caps.blocks) drawBlock(ctx, cv, b, c, sx, sy, minFs);
+    const minFontSize = MIN_FONT_PX * (canvas.width / (s.win ? s.win.width : canvas.width));
+    for (const block of s.caps.blocks) drawBlock(ctx, canvas, block, content, scaleX, scaleY, minFontSize);
   }
 
   /* Resize canvas to video and PiP window */
@@ -92,9 +92,9 @@
     const px = s.win ? s.win.width * (window.devicePixelRatio || 1) : vw;
     const target = CPIP.clamp(px, MIN_W, MAX_W);
     /* Avoid shaking */
-    const cur = s.canvas.width;
-    const sameAspect = s.sized && Math.abs(cur / s.canvas.height - vw / vh) < 0.01;
-    if (sameAspect && cur >= target && cur - target < STEP_W * 2) return;
+    const currentW = s.canvas.width;
+    const sameAspect = s.sized && Math.abs(currentW / s.canvas.height - vw / vh) < 0.01;
+    if (sameAspect && currentW >= target && currentW - target < STEP_W * 2) return;
     const w = Math.min(MAX_W, Math.ceil(target / STEP_W) * STEP_W);
     const h = Math.round((w * vh) / vw / 2) * 2;
     if (s.canvas.width === w && s.canvas.height === h) return;
@@ -106,24 +106,24 @@
 
   /* Get caption fingerprint */
   const sigOf = (caps) =>
-    caps.layers.length + "|" + caps.blocks.map((b) => `${b.text}@${Math.round(b.left)},${Math.round(b.bottom)},${Math.round(b.width)}`).join("|");
+    caps.layers.length + "|" + caps.blocks.map((block) => `${block.text}@${Math.round(block.left)},${Math.round(block.bottom)},${Math.round(block.width)}`).join("|");
 
   /* Count decoded frames */
-  function frameCount(v) {
+  function frameCount(video) {
     try {
-      return v.getVideoPlaybackQuality().totalVideoFrames;
+      return video.getVideoPlaybackQuality().totalVideoFrames;
     } catch (e) {
-      return v.currentTime;
+      return video.currentTime;
     }
   }
 
   function tick(s) {
     if (session !== s) return;
-    const t = performance.now();
+    const time = performance.now();
     if (!s.video.isConnected) return stop(s);
     const playing = !s.video.paused;
-    if (t - s.scanAt >= (playing ? SCAN_MS : SCAN_PAUSED_MS)) {
-      s.scanAt = t;
+    if (time - s.scanAt >= (playing ? SCAN_MS : SCAN_PAUSED_MS)) {
+      s.scanAt = time;
       try {
         s.caps = CPIP.scan(s);
         const sig = sigOf(s.caps);
@@ -134,22 +134,28 @@
       } catch (e) {
         console.warn("[Caption pip] scan failed", e);
       }
-      const k = s.video.videoWidth / s.video.videoHeight;
-      if (k && Math.abs(s.canvas.width / s.canvas.height - k) > 0.01) sizeCanvas(s);
+      const aspect = s.video.videoWidth / s.video.videoHeight;
+      if (aspect && Math.abs(s.canvas.width / s.canvas.height - aspect) > 0.01) sizeCanvas(s);
+    }
+    /* Track caption motion */
+    else if (playing && s.caps.blocks.length) {
+      try {
+        if (CPIP.trackBlocksMotion(s.caps)) s.dirty = true;
+      } catch (e) {}
     }
     /* Paint at video frame rate */
-    const fc = frameCount(s.video);
-    if (fc !== s.fc) {
-      s.fc = fc;
-      s.fcAt = t;
+    const frames = frameCount(s.video);
+    if (frames !== s.fc) {
+      s.fc = frames;
+      s.fcAt = time;
       s.dirty = true;
-    } else if (playing && t - s.fcAt > STALL_MS) {
+    } else if (playing && time - s.fcAt > STALL_MS) {
       /* Paint every tick if counter stalls */
       s.dirty = true;
     }
     /* Paint canvas subtitles every tick */
     if (playing && s.caps.layers.length) s.dirty = true;
-    if (s.dirty || t - s.paintAt >= KEEPALIVE_MS) paint(s);
+    if (s.dirty || time - s.paintAt >= KEEPALIVE_MS) paint(s);
   }
 
   /* Session */
@@ -186,15 +192,15 @@
       pause: () => video.pause(),
       seekbackward: () => (video.currentTime = Math.max(0, video.currentTime - 10)),
       seekforward: () => (video.currentTime = video.currentTime + 10),
-      seekto: (d) => {
-        if (d.seekTime == null) return;
-        if (d.fastSeek && typeof video.fastSeek === "function") video.fastSeek(d.seekTime);
-        else video.currentTime = d.seekTime;
+      seekto: (details) => {
+        if (details.seekTime == null) return;
+        if (details.fastSeek && typeof video.fastSeek === "function") video.fastSeek(details.seekTime);
+        else video.currentTime = details.seekTime;
       },
     };
-    for (const [name, fn] of Object.entries(acts)) {
+    for (const [name, handler] of Object.entries(acts)) {
       try {
-        media.setActionHandler(name, fn);
+        media.setActionHandler(name, handler);
         s.undo.push(() => {
           try {
             media.setActionHandler(name, null);
@@ -229,7 +235,7 @@
     sync();
   }
 
-  const exitIf = (el) => document.pictureInPictureElement === el && document.exitPictureInPicture().catch(() => {});
+  const exitIf = (video) => document.pictureInPictureElement === video && document.exitPictureInPicture().catch(() => {});
 
   /* Open plain PiP without captions */
   async function startNative(video) {
@@ -351,7 +357,7 @@
       s.close();
     } else {
       exitIf(s.out);
-      if (s.out.srcObject) s.out.srcObject.getTracks().forEach((t) => t.stop());
+      if (s.out.srcObject) s.out.srcObject.getTracks().forEach((track) => track.stop());
       s.out.remove();
     }
     CPIP.updateButton();

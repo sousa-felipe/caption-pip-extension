@@ -37,55 +37,56 @@
   const BAD_CLASS = "[class*='control' i],[class*='menu' i],[class*='setting' i],[class*='tooltip' i],[class*='btn' i],[class*='button' i],[class*='popup' i],[class*='toast' i],[class*='title' i]:not([class*='subtitle' i]),[class*='episode' i],[class*='track-select' i]";
   const TIME = /^\d{1,2}:\d{2}(:\d{2})?(\s*\/\s*\d{1,2}:\d{2}(:\d{2})?)?$/;
 
-  function blocked(el, root, v) {
+  function blocked(el, root, video) {
     if (el.closest(BAD_TAG)) return true;
-    let n = el;
-    for (let i = 0; n && i < 3 && n !== root; i++, n = n.parentElement) {
-      if (v && n.contains(v)) break;
-      if (n.matches(BAD_CLASS)) return true;
+    let node = el;
+    for (let i = 0; node && i < 3 && node !== root; i++, node = node.parentElement) {
+      if (video && node.contains(video)) break;
+      if (node.matches(BAD_CLASS)) return true;
     }
     return false;
   }
 
-  const invisible = (cs) => cs.display === "none" || cs.visibility === "hidden" || parseFloat(cs.opacity) < 0.05;
+  const invisible = (style) => style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity) < 0.05;
 
   function shown(el, box) {
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) return false;
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    if (cx < box.left || cx > box.right || cy < box.top || cy > box.bottom) return false;
+    const elBox = el.getBoundingClientRect();
+    if (!elBox.width || !elBox.height) return false;
+    const centerX = elBox.left + elBox.width / 2;
+    const centerY = elBox.top + elBox.height / 2;
+    if (centerX < box.left || centerX > box.right || centerY < box.top || centerY > box.bottom) return false;
     /* Check style last */
     return !invisible(getComputedStyle(el));
   }
 
-  const isClear = (c) => !c || c === "transparent" || /,\s*0\)$/.test(c);
-  const norm = (t) => t.replace(/\s+/g, " ").trim();
+  const isClear = (color) => !color || color === "transparent" || /,\s*0\)$/.test(color);
+  const norm = (text) => text.replace(/\s+/g, " ").trim();
 
   function blockOf(el, root) {
     const text = (el.innerText || "").replace(/ /g, " ").trim();
     if (!text || text.length > 300 || TIME.test(text)) return null;
-    const cs = getComputedStyle(el);
-    const r = el.getBoundingClientRect();
-    let bg = cs.backgroundColor;
-    for (let n = el.parentElement, i = 0; isClear(bg) && n && i < 2 && n !== root; i++, n = n.parentElement) {
-      bg = getComputedStyle(n).backgroundColor;
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    let bg = style.backgroundColor;
+    for (let node = el.parentElement, i = 0; isClear(bg) && node && i < 2 && node !== root; i++, node = node.parentElement) {
+      bg = getComputedStyle(node).backgroundColor;
     }
     return {
+      els: [el],
       text,
-      left: r.left,
-      width: r.width,
-      top: r.top,
-      bottom: r.bottom,
-      fs: parseFloat(cs.fontSize) || 16,
-      color: cs.color,
-      font: cs.fontFamily,
-      weight: cs.fontWeight,
+      left: box.left,
+      width: box.width,
+      top: box.top,
+      bottom: box.bottom,
+      fs: parseFloat(style.fontSize) || 16,
+      color: style.color,
+      font: style.fontFamily,
+      weight: style.fontWeight,
       bg: isClear(bg) ? "" : bg,
     };
   }
 
-  function domBlocks(v, root, roots) {
+  function domBlocks(video, root, roots) {
     let list = [];
     try {
       list = CPIP.customSel
@@ -93,25 +94,25 @@
         : CPIP.qsaAll(roots, CAPTION_SEL);
     } catch (e) {
     }
-    const box = v.getBoundingClientRect();
-    list = list.filter((el) => !CPIP.isOurs(el) && (CPIP.customSel || !blocked(el, root, v)) && shown(el, box));
+    const box = video.getBoundingClientRect();
+    list = list.filter((el) => !CPIP.isOurs(el) && (CPIP.customSel || !blocked(el, root, video)) && shown(el, box));
     /* Avoid lines drawn twice */
-    list = list.filter((a) => !list.some((b) => b !== a && a.contains(b)));
+    list = list.filter((outer) => !list.some((inner) => inner !== outer && outer.contains(inner)));
     return list.map((el) => blockOf(el, root)).filter(Boolean);
   }
 
   /* Remove repeated captions */
   function dedupe(blocks) {
-    const lines = (b) => b.text.split("\n").map(norm).filter(Boolean);
+    const lines = (block) => block.text.split("\n").map(norm).filter(Boolean);
     const sorted = [...blocks].sort((a, b) => lines(b).length - lines(a).length);
     const out = [];
-    for (const b of sorted) {
-      const mine = lines(b);
-      const covered = out.some((o) => {
-        const theirs = new Set(lines(o));
-        return mine.every((l) => theirs.has(l));
+    for (const block of sorted) {
+      const mine = lines(block);
+      const covered = out.some((other) => {
+        const theirs = new Set(lines(other));
+        return mine.every((line) => theirs.has(line));
       });
-      if (!covered) out.push(b);
+      if (!covered) out.push(block);
     }
     return out;
   }
@@ -119,36 +120,37 @@
   /* Join lines of one caption, so they never overlap */
   function stack(blocks) {
     const out = [];
-    for (const b of [...blocks].sort((x, y) => x.bottom - y.bottom)) {
-      const p = out[out.length - 1];
-      const below = p && b.top >= p.top + p.fs * 0.5 && b.top - p.bottom < p.fs * 0.6;
-      if (below && Math.abs(b.left + b.width / 2 - (p.left + p.width / 2)) < Math.max(b.width, p.width) * 0.5) {
-        const l = Math.min(p.left, b.left);
-        const r = Math.max(p.left + p.width, b.left + b.width);
-        p.left = l;
-        p.width = r - l;
-        p.bottom = b.bottom;
-        p.text += "\n" + b.text;
-      } else out.push({ ...b });
+    for (const block of [...blocks].sort((x, y) => x.bottom - y.bottom)) {
+      const prev = out[out.length - 1];
+      const below = prev && block.top >= prev.top + prev.fs * 0.5 && block.top - prev.bottom < prev.fs * 0.6;
+      if (below && Math.abs(block.left + block.width / 2 - (prev.left + prev.width / 2)) < Math.max(block.width, prev.width) * 0.5) {
+        const left = Math.min(prev.left, block.left);
+        const right = Math.max(prev.left + prev.width, block.left + block.width);
+        prev.left = left;
+        prev.width = right - left;
+        prev.bottom = block.bottom;
+        prev.els = prev.els.concat(block.els);
+        prev.text += "\n" + block.text;
+      } else out.push({ ...block });
     }
     return out;
   }
 
   /* Read native tracks (WebVTT) */
-  function cueBlocks(v, c, seen) {
+  function cueBlocks(video, content, seen) {
     const out = [];
-    for (const t of v.textTracks) {
-      if (t.mode === "disabled" || !/subtitles|captions/.test(t.kind) || !t.activeCues) continue;
-      for (const cue of t.activeCues) {
+    for (const track of video.textTracks) {
+      if (track.mode === "disabled" || !/subtitles|captions/.test(track.kind) || !track.activeCues) continue;
+      for (const cue of track.activeCues) {
         const text = String(cue.text || "").replace(/<[^>]+>/g, "").trim();
-        if (!text || seen.has(norm(text)) || text.split("\n").every((l) => seen.has(norm(l)))) continue;
+        if (!text || seen.has(norm(text)) || text.split("\n").every((line) => seen.has(norm(line)))) continue;
         const free = cue.snapToLines === false && typeof cue.line === "number";
         out.push({
           text,
-          left: c.left + c.width * 0.05,
-          width: c.width * 0.9,
-          bottom: c.top + c.height * (free ? CPIP.clamp(cue.line, 5, 98) / 100 : 0.94),
-          fs: c.height * 0.045,
+          left: content.left + content.width * 0.05,
+          width: content.width * 0.9,
+          bottom: content.top + content.height * (free ? CPIP.clamp(cue.line, 5, 98) / 100 : 0.94),
+          fs: content.height * 0.045,
           color: "#fff",
           font: "Arial, sans-serif",
           weight: "500",
@@ -160,31 +162,31 @@
   }
 
   /* Find canvas overlays (ASS renderers) */
-  function layersOf(roots, c) {
-    return CPIP.qsaAll(roots, "canvas").filter((cv) => {
-      if (CPIP.isOurs(cv)) return false;
-      const r = cv.getBoundingClientRect();
-      const w = Math.min(r.right, c.left + c.width) - Math.max(r.left, c.left);
-      const h = Math.min(r.bottom, c.top + c.height) - Math.max(r.top, c.top);
-      if (w <= 0 || h <= 0 || (w * h) / (c.width * c.height) < 0.4) return false;
-      const cs = getComputedStyle(cv);
-      if (invisible(cs)) return false;
-      return CANVAS_NAME.test(cv.className + " " + cv.id) || cs.pointerEvents === "none";
+  function layersOf(roots, content) {
+    return CPIP.qsaAll(roots, "canvas").filter((canvas) => {
+      if (CPIP.isOurs(canvas)) return false;
+      const box = canvas.getBoundingClientRect();
+      const overlapW = Math.min(box.right, content.left + content.width) - Math.max(box.left, content.left);
+      const overlapH = Math.min(box.bottom, content.top + content.height) - Math.max(box.top, content.top);
+      if (overlapW <= 0 || overlapH <= 0 || (overlapW * overlapH) / (content.width * content.height) < 0.4) return false;
+      const style = getComputedStyle(canvas);
+      if (invisible(style)) return false;
+      return CANVAS_NAME.test(canvas.className + " " + canvas.id) || style.pointerEvents === "none";
     });
   }
 
   /* Last resort for unknown players */
-  function looseBlocks(v, root, roots) {
-    const box = v.getBoundingClientRect();
+  function looseBlocks(video, root, roots) {
+    const box = video.getBoundingClientRect();
     const mid = box.left + box.width / 2;
     const all = CPIP.qsaAll(roots, "*");
     if (all.length > 1500) return [];
     const out = [];
     for (const el of all) {
-      if (el === v || el.children.length > 3 || !CPIP.hasText(el) || CPIP.isOurs(el)) continue;
-      const r = el.getBoundingClientRect();
-      if (r.top < box.top + box.height * 0.45 || Math.abs(r.left + r.width / 2 - mid) > box.width * 0.15) continue;
-      if (blocked(el, root, v) || !shown(el, box)) continue;
+      if (el === video || el.children.length > 3 || !CPIP.hasText(el) || CPIP.isOurs(el)) continue;
+      const elBox = el.getBoundingClientRect();
+      if (elBox.top < box.top + box.height * 0.45 || Math.abs(elBox.left + elBox.width / 2 - mid) > box.width * 0.15) continue;
+      if (blocked(el, root, video) || !shown(el, box)) continue;
       if (getComputedStyle(el).pointerEvents !== "none") continue;
       out.push(el);
     }
@@ -192,22 +194,48 @@
   }
 
   function scan(s) {
-    const a = s.video;
-    const c = CPIP.content(a);
-    const root = CPIP.playerRoot(a, c);
+    const video = s.video;
+    const content = CPIP.content(video);
+    const root = CPIP.playerRoot(video, content);
     /* Search player and its shadow roots */
     const roots = CPIP.rootsIn(root);
-    let blocks = dedupe(stack(domBlocks(a, root, roots)));
+    let blocks = dedupe(stack(domBlocks(video, root, roots)));
     /* Align YouTube captions to the left edge */
-    if (a.closest(".html5-video-player")) blocks.forEach((b) => (b.leftAlign = true));
+    if (video.closest(".html5-video-player")) blocks.forEach((block) => (block.leftAlign = true));
     const seen = new Set();
-    for (const b of blocks) {
-      seen.add(norm(b.text));
-      b.text.split("\n").forEach((l) => seen.add(norm(l)));
+    for (const block of blocks) {
+      seen.add(norm(block.text));
+      block.text.split("\n").forEach((line) => seen.add(norm(line)));
     }
-    const cues = cueBlocks(a, c, seen);
-    if (!blocks.length && !cues.length) blocks = looseBlocks(a, root, roots);
-    return { blocks: blocks.concat(cues), layers: layersOf(roots, c), c, root };
+    const cues = cueBlocks(video, content, seen);
+    if (!blocks.length && !cues.length) blocks = looseBlocks(video, root, roots);
+    return { blocks: blocks.concat(cues), layers: layersOf(roots, content), content, root };
+  }
+
+  /* Per-frame update of caption positions */
+  function trackBlocksMotion(caps) {
+    let moved = false;
+    for (const block of caps.blocks) {
+      if (!block.els) continue;
+      let left = Infinity,
+        right = -Infinity,
+        top = Infinity,
+        bottom = -Infinity;
+      for (const el of block.els) {
+        if (!el.isConnected) return moved;
+        const box = el.getBoundingClientRect();
+        left = Math.min(left, box.left);
+        right = Math.max(right, box.right);
+        top = Math.min(top, box.top);
+        bottom = Math.max(bottom, box.bottom);
+      }
+      if (left !== block.left || right - left !== block.width || bottom !== block.bottom || top !== block.top) moved = true;
+      block.left = left;
+      block.width = right - left;
+      block.top = top;
+      block.bottom = bottom;
+    }
+    return moved;
   }
 
   /* Read captions from the page for Document PiP */
@@ -221,34 +249,34 @@
         if (CPIP.isOurs(el) || (!custom && blocked(el, s.playerRoot, null))) return false;
         /* Skip faded text */
         if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
-        const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) return false;
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
-        return cx >= box.left && cx <= box.right && cy >= box.top && cy <= box.bottom;
+        const elBox = el.getBoundingClientRect();
+        if (!elBox.width || !elBox.height) return false;
+        const centerX = elBox.left + elBox.width / 2;
+        const centerY = elBox.top + elBox.height / 2;
+        return centerX >= box.left && centerX <= box.right && centerY >= box.top && centerY <= box.bottom;
       });
-      els = els.filter((a) => !els.some((b) => b !== a && a.contains(b)));
+      els = els.filter((outer) => !els.some((inner) => inner !== outer && outer.contains(inner)));
       for (const el of els) {
         const text = (el.innerText || "").trim();
         if (!text || text.length > 300) continue;
-        const cs = getComputedStyle(el);
+        const style = getComputedStyle(el);
         blocks.push({
           text,
-          color: cs.color,
-          bg: isClear(cs.backgroundColor) ? "" : cs.backgroundColor,
-          font: cs.fontFamily,
-          weight: cs.fontWeight,
-          shadow: cs.textShadow,
-          size: box.height ? parseFloat(cs.fontSize) / box.height : 0,
+          color: style.color,
+          bg: isClear(style.backgroundColor) ? "" : style.backgroundColor,
+          font: style.fontFamily,
+          weight: style.fontWeight,
+          shadow: style.textShadow,
+          size: box.height ? parseFloat(style.fontSize) / box.height : 0,
         });
       }
     } catch (e) {
       console.warn("[Caption pip] page caption scan failed", e);
     }
     try {
-      for (const t of s.video.textTracks) {
-        if (t.mode === "disabled" || !/subtitles|captions/.test(t.kind) || !t.activeCues) continue;
-        for (const cue of t.activeCues) {
+      for (const track of s.video.textTracks) {
+        if (track.mode === "disabled" || !/subtitles|captions/.test(track.kind) || !track.activeCues) continue;
+        for (const cue of track.activeCues) {
           const text = String(cue.text || "").replace(/<[^>]+>/g, "").trim();
           if (text) blocks.push({ text, color: "#fff", bg: "" });
         }
@@ -257,23 +285,23 @@
       console.warn("[Caption pip] text track scan failed", e);
     }
     const seen = new Set();
-    return blocks.filter((b) => {
-      const k = norm(b.text);
-      if (seen.has(k)) return false;
-      seen.add(k);
+    return blocks.filter((block) => {
+      const text = norm(block.text);
+      if (seen.has(text)) return false;
+      seen.add(text);
       return true;
     });
   }
 
   /* False only when no captions exist */
-  function hasCaptions(v) {
+  function hasCaptions(video) {
     if (CPIP.customSel) return true;
     try {
-      if ([...v.textTracks].some((t) => /subtitles|captions/.test(t.kind))) return true;
-      const c = CPIP.content(v);
-      const roots = CPIP.rootsIn(CPIP.playerRoot(v, c));
+      if ([...video.textTracks].some((track) => /subtitles|captions/.test(track.kind))) return true;
+      const content = CPIP.content(video);
+      const roots = CPIP.rootsIn(CPIP.playerRoot(video, content));
       if (CPIP.qsaAll(roots, CAPTION_SEL).some((el) => !CPIP.isOurs(el))) return true;
-      return layersOf(roots, c).length > 0;
+      return layersOf(roots, content).length > 0;
     } catch (e) {
       console.warn("[Caption pip] caption check failed", e);
       return true;
@@ -283,5 +311,6 @@
   /* Share with pip.js and documentpip.js */
   CPIP.hasCaptions = hasCaptions;
   CPIP.scan = scan;
+  CPIP.trackBlocksMotion = trackBlocksMotion;
   CPIP.scanDoc = scanDoc;
 })();

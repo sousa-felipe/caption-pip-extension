@@ -26,68 +26,68 @@
   /* Copy page fonts */
   function copyFonts(doc) {
     const fix = (css, base) =>
-      css.replace(/url\((['"]?)([^'")]+)\1\)/g, (m, q, u) => {
+      css.replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, url) => {
         try {
-          return `url("${new URL(u, base).href}")`;
+          return `url("${new URL(url, base).href}")`;
         } catch (e) {
-          return m;
+          return match;
         }
       });
     let css = "";
-    for (const sh of document.styleSheets) {
+    for (const sheet of document.styleSheets) {
       let rules;
       try {
-        rules = sh.cssRules;
+        rules = sheet.cssRules;
       } catch (e) {
         /* Link cross-origin sheet */
-        if (sh.href) {
-          const l = doc.createElement("link");
-          l.rel = "stylesheet";
-          l.href = sh.href;
-          doc.head.appendChild(l);
+        if (sheet.href) {
+          const link = doc.createElement("link");
+          link.rel = "stylesheet";
+          link.href = sheet.href;
+          doc.head.appendChild(link);
         }
         continue;
       }
-      for (const r of rules) if (r instanceof CSSFontFaceRule) css += fix(r.cssText, sh.href || location.href);
+      for (const rule of rules) if (rule instanceof CSSFontFaceRule) css += fix(rule.cssText, sheet.href || location.href);
     }
     if (css) {
-      const st = doc.createElement("style");
-      st.textContent = css;
-      doc.head.appendChild(st);
+      const style = doc.createElement("style");
+      style.textContent = css;
+      doc.head.appendChild(style);
     }
     try {
-      for (const f of document.fonts) {
+      for (const font of document.fonts) {
         try {
-          doc.fonts.add(f);
+          doc.fonts.add(font);
         } catch (e) {}
       }
     } catch (e) {}
   }
 
-  const fmtTime = (sec) => {
-    if (!Number.isFinite(sec) || sec < 0) return "0:00";
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = Math.floor(sec % 60);
-    return h ? h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0") : m + ":" + String(s).padStart(2, "0");
+  const formatTime = (totalSec) => {
+    if (!Number.isFinite(totalSec) || totalSec < 0) return "0:00";
+    const hr = Math.floor(totalSec / 3600);
+    const min = Math.floor((totalSec % 3600) / 60);
+    const sec = Math.floor(totalSec % 60);
+    return hr ? hr + ":" + String(min).padStart(2, "0") + ":" + String(sec).padStart(2, "0") : min + ":" + String(sec).padStart(2, "0");
   };
 
   /* Captions */
   function renderCaptions(s, blocks) {
     const doc = s.pipWin.document;
     s.overlay.textContent = "";
-    for (const b of blocks) {
+    for (const block of blocks) {
       const el = doc.createElement("div");
-      el.textContent = b.text;
-      if (b.bg) {
+      el.textContent = block.text;
+      if (block.bg) {
         el.className = "cpip-bg";
-        el.style.backgroundColor = b.bg;
+        el.style.backgroundColor = block.bg;
       }
-      if (b.color) el.style.color = b.color;
-      if (b.font) el.style.fontFamily = b.font;
-      if (b.weight) el.style.fontWeight = b.weight;
-      if (b.size) el.style.fontSize = `calc(max(14px, ${(b.size * 100).toFixed(2)}vh) * var(--cpip-scale, 1))`;
-      if (b.shadow && b.shadow !== "none") el.style.textShadow = b.shadow;
+      if (block.color) el.style.color = block.color;
+      if (block.font) el.style.fontFamily = block.font;
+      if (block.weight) el.style.fontWeight = block.weight;
+      if (block.size) el.style.fontSize = `calc(max(14px, ${(block.size * 100).toFixed(2)}vh) * var(--cpip-scale, 1))`;
+      if (block.shadow && block.shadow !== "none") el.style.textShadow = block.shadow;
       s.overlay.appendChild(el);
     }
   }
@@ -95,7 +95,7 @@
   function syncCaptions(s) {
     if (!CPIP.current(s)) return;
     const blocks = CPIP.scanDoc(s);
-    const sig = blocks.map((b) => `${b.text}@${(b.size || 0).toFixed(3)}`).join("|");
+    const sig = blocks.map((block) => `${block.text}@${(block.size || 0).toFixed(3)}`).join("|");
     if (sig === s.sig) return;
     s.sig = sig;
     renderCaptions(s, blocks);
@@ -116,13 +116,13 @@
   }
 
   async function start(video) {
-    const c = CPIP.content(video);
+    const content = CPIP.content(video);
     const s = {
       mode: "docpip",
       video,
       undo: [],
       sig: "",
-      playerRoot: CPIP.playerRoot(video, c),
+      playerRoot: CPIP.playerRoot(video, content),
       originalParent: video.parentElement,
       originalNext: video.nextSibling,
       originalStyle: video.getAttribute("style") || "",
@@ -163,28 +163,28 @@
     doc.body.appendChild(wrap);
 
     s.placeholder = document.createElement("div");
-    const rect = video.getBoundingClientRect();
-    s.placeholder.style.cssText = `width:${rect.width}px;height:${rect.height}px;background:#000`;
+    const box = video.getBoundingClientRect();
+    s.placeholder.style.cssText = `width:${box.width}px;height:${box.height}px;background:#000`;
     video.parentElement.insertBefore(s.placeholder, video);
     video.removeAttribute("style");
     wrap.appendChild(video);
 
-    const el = (tag, id, cls) => {
-      const n = doc.createElement(tag);
-      if (id) n.id = id;
-      if (cls) n.className = cls;
-      return n;
+    const create = (tag, id, className) => {
+      const el = doc.createElement(tag);
+      if (id) el.id = id;
+      if (className) el.className = className;
+      return el;
     };
-    const makeButton = (cls, icon, title, id) => {
-      const b = el("button", id, "cpip-btn " + cls);
-      b.innerHTML = icon;
-      b.title = title;
-      return b;
+    const makeButton = (className, icon, title, id) => {
+      const btn = create("button", id, "cpip-btn " + className);
+      btn.innerHTML = icon;
+      btn.title = title;
+      return btn;
     };
 
     /* Center row */
-    const ctrl = (s.ctrl = el("div", "cpip-controls"));
-    const center = el("div", "cpip-center");
+    const ctrl = (s.ctrl = create("div", "cpip-controls"));
+    const center = create("div", "cpip-center");
     const backBtn = makeButton("cpip-skip", CPIP.ICONS.BACK10, "Back 10 seconds");
     const playBtn = makeButton("", CPIP.ICONS.PLAY, "Play", "cpip-play");
     const fwdBtn = makeButton("cpip-skip", CPIP.ICONS.FWD10, "Forward 10 seconds");
@@ -192,22 +192,22 @@
 
     /* Slider */
     const slider = (onPick) => {
-      const root = el("div", "", "cpip-slider");
-      const inner = el("div", "", "cpip-track");
-      const a = el("div", "", "cpip-fill");
-      const i = el("div", "", "cpip-rest");
-      const h = el("div", "", "cpip-handle");
-      inner.append(a, i, h);
+      const root = create("div", "", "cpip-slider");
+      const inner = create("div", "", "cpip-track");
+      const fill = create("div", "", "cpip-fill");
+      const rest = create("div", "", "cpip-rest");
+      const handle = create("div", "", "cpip-handle");
+      inner.append(fill, rest, handle);
       root.append(inner);
-      const set = (f) => {
-        const p = CPIP.clamp(f, 0, 1) * 100;
-        a.style.width = `max(0px, calc(${p}% - 5px))`;
-        i.style.left = `min(100%, calc(${p}% + 5px))`;
-        h.style.left = p + "%";
+      const set = (frac) => {
+        const perc = CPIP.clamp(frac, 0, 1) * 100;
+        fill.style.width = `max(0px, calc(${perc}% - 5px))`;
+        rest.style.left = `min(100%, calc(${perc}% + 5px))`;
+        handle.style.left = perc + "%";
       };
       const at = (e) => {
-        const r = inner.getBoundingClientRect();
-        return CPIP.clamp((e.clientX - r.left) / r.width, 0, 1);
+        const box = inner.getBoundingClientRect();
+        return CPIP.clamp((e.clientX - box.left) / box.width, 0, 1);
       };
       const end = () => {
         s.seeking = false;
@@ -226,16 +226,16 @@
     };
 
     /* Bottom bar */
-    const bottom = el("div", "cpip-bottom");
+    const bottom = create("div", "cpip-bottom");
     const prevBtn = makeButton("", CPIP.ICONS.PREV, "Previous", "cpip-prev");
     const nextBtn = makeButton("", CPIP.ICONS.NEXT, "Next", "cpip-next");
-    const progress = slider((f) => {
+    const progress = slider((frac) => {
       const dur = video.duration;
-      if (Number.isFinite(dur) && dur > 0) video.currentTime = f * dur;
+      if (Number.isFinite(dur) && dur > 0) video.currentTime = frac * dur;
       syncTime();
     });
     progress.root.id = "cpip-progress";
-    const time = el("span", "", "cpip-time");
+    const time = create("span", "", "cpip-time");
     const muteBtn = makeButton("", CPIP.ICONS.VOL, "Mute", "cpip-mute");
     const ccBtn = makeButton("", CPIP.ICONS.CC, "Caption size", "cpip-cc");
     const fitBtn = makeButton("", CPIP.ICONS.FIT, "Fit to video", "cpip-fit");
@@ -244,13 +244,13 @@
     wrap.appendChild(ctrl);
 
     /* Captions sit above the controls */
-    s.overlay = el("div", "cpip-cap");
+    s.overlay = create("div", "cpip-cap");
     wrap.appendChild(s.overlay);
 
     /* Caption size panel */
-    const panel = el("div", "cpip-panel");
-    const size = slider((f) => setScale(0.5 + f * 2, true));
-    const pct = el("span", "", "cpip-pct");
+    const panel = create("div", "cpip-panel");
+    const size = slider((frac) => setScale(0.5 + frac * 2, true));
+    const pct = create("span", "", "cpip-pct");
     panel.append(size.root, pct);
     wrap.appendChild(panel);
     const closePanel = () => {
@@ -259,8 +259,8 @@
     };
 
     /* Caption scale, remembered across sessions */
-    const setScale = (v, save) => {
-      s.scale = Math.round(CPIP.clamp(v, 0.5, 2.5) * 20) / 20;
+    const setScale = (value, save) => {
+      s.scale = Math.round(CPIP.clamp(value, 0.5, 2.5) * 20) / 20;
       s.overlay.style.setProperty("--cpip-scale", s.scale);
       pct.textContent = Math.round(s.scale * 100) + "%";
       size.set((s.scale - 0.5) / 2);
@@ -269,19 +269,19 @@
         chrome.storage.local.set({ [SCALE_KEY]: s.scale });
       } catch (e) {}
     };
-    const changeScale = (d) => setScale(s.scale + d, true);
+    const changeScale = (delta) => setScale(s.scale + delta, true);
     setScale(1);
     try {
       chrome.storage.local.get(SCALE_KEY, (o) => CPIP.current(s) && o && o[SCALE_KEY] && setScale(o[SCALE_KEY]));
     } catch (e) {}
 
     /* Next and previous from page media session */
-    const msHas = (a) => (document.documentElement.getAttribute("data-cpip-ms") || "").split(" ").includes(a);
-    const msRun = (a) => window.dispatchEvent(new CustomEvent("cpip-ms", { detail: a }));
+    const msHas = (action) => (document.documentElement.getAttribute("data-cpip-ms") || "").split(" ").includes(action);
+    const msRun = (action) => window.dispatchEvent(new CustomEvent("cpip-ms", { detail: action }));
 
     /* Actions */
     const togglePlay = () => (video.paused ? video.play().catch(() => {}) : video.pause());
-    const skip = (d) => (video.currentTime = CPIP.clamp(video.currentTime + d, 0, video.duration || Infinity));
+    const skip = (seconds) => (video.currentTime = CPIP.clamp(video.currentTime + seconds, 0, video.duration || Infinity));
     bind(playBtn, "click", togglePlay);
     bind(backBtn, "click", () => skip(-10));
     bind(fwdBtn, "click", () => skip(10));
@@ -289,25 +289,25 @@
     const ratio = () => video.videoWidth / video.videoHeight || 0;
     const fitWindow = () => {
       const win = s.pipWin;
-      const r = ratio();
-      if (!r) return;
+      const videoRatio = ratio();
+      if (!videoRatio) return;
       const frameW = win.outerWidth - win.innerWidth;
       const frameH = win.outerHeight - win.innerHeight;
       let w = win.innerWidth;
-      let h = Math.round(w / r);
+      let h = Math.round(w / videoRatio);
       /* Keep window on screen */
       if (h + frameH > screen.availHeight) {
         h = win.innerHeight;
-        w = Math.round(h * r);
+        w = Math.round(h * videoRatio);
       }
       try {
         win.resizeTo(w + frameW, h + frameH);
       } catch (e) {}
     };
     const syncFit = () => {
-      const r = ratio();
-      const off = r && Math.abs(s.pipWin.innerWidth / s.pipWin.innerHeight - r) / r > 0.02;
-      fitBtn.style.display = off ? "" : "none";
+      const videoRatio = ratio();
+      const wrongAspect = videoRatio && Math.abs(s.pipWin.innerWidth / s.pipWin.innerHeight - videoRatio) / videoRatio > 0.02;
+      fitBtn.style.display = wrongAspect ? "" : "none";
     };
     bind(fitBtn, "click", fitWindow);
     bind(s.pipWin, "resize", syncFit);
@@ -344,14 +344,14 @@
       wrap.classList.toggle("cpip-is-paused", video.paused);
     };
     const syncVol = () => {
-      const m = video.muted || video.volume === 0;
-      muteBtn.innerHTML = m ? CPIP.ICONS.MUTED : CPIP.ICONS.VOL;
-      muteBtn.title = m ? "Unmute" : "Mute";
+      const isMuted = video.muted || video.volume === 0;
+      muteBtn.innerHTML = isMuted ? CPIP.ICONS.MUTED : CPIP.ICONS.VOL;
+      muteBtn.title = isMuted ? "Unmute" : "Mute";
     };
     const syncTime = () => {
       const cur = video.currentTime || 0;
       const dur = video.duration || 0;
-      time.textContent = fmtTime(cur) + " / " + fmtTime(dur);
+      time.textContent = formatTime(cur) + " / " + formatTime(dur);
       progress.set(dur > 0 ? cur / dur : 0);
       /* Show both buttons when either exists */
       const hasPrev = msHas("previoustrack");
@@ -435,8 +435,8 @@
     const syncSoon = () => setTimeout(() => syncCaptions(s), 0);
     bind(video, "seeked", syncSoon);
     bind(video, "play", syncSoon);
-    const watchTrack = (t) => t && bind(t, "cuechange", syncSoon);
-    for (const t of video.textTracks) watchTrack(t);
+    const watchTrack = (track) => track && bind(track, "cuechange", syncSoon);
+    for (const track of video.textTracks) watchTrack(track);
     bind(video.textTracks, "addtrack", (e) => watchTrack(e.track));
     s.pipWin.addEventListener("pagehide", () => CPIP.stop(s));
     CPIP.bindMediaSession(s, video);

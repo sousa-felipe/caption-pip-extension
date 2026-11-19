@@ -424,13 +424,13 @@ html[data-cpip-pip] body {
 
 /* Progress bar */
 #cpip-wrap .cpip-slider {
-  --cpip-line: 2px;
+  --cpip-thickness: 2px;
   position: relative;
   cursor: pointer;
   touch-action: none;
 }
 #cpip-wrap .cpip-slider:hover,
-#cpip-wrap .cpip-slider.cpip-drag { --cpip-line: 4px; }
+#cpip-wrap .cpip-slider.cpip-drag { --cpip-thickness: 4px; }
 #cpip-wrap .cpip-track {
   position: absolute;
   top: 0;
@@ -442,7 +442,7 @@ html[data-cpip-pip] body {
 #cpip-wrap .cpip-rest {
   position: absolute;
   top: 50%;
-  height: var(--cpip-line);
+  height: var(--cpip-thickness);
   transform: translateY(-50%);
   border-radius: 2px;
   transition: height 0.15s;
