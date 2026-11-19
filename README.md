@@ -11,15 +11,6 @@
 4. Click **Load unpacked**.
 5. Select the **extracted folder** with `manifest.json`.
 
-## How to use
-
-Open a video, then press **`Alt`** + **`Shift`** + **`P`** (or use the *Caption pip* **button** on upper right corner).
-
-If the captions are not found, press **`Alt`** + **`Shift`** + **`S`** (or use the *Pick caption* **button**) then click the caption text.
-
-> [!NOTE]
-> If the buttons cover a control of the video player, right click them and choose **Hide buttons**. They stay hidden until your cursor leaves the upper right corner of the video, then show up again on hover.
-
 ## How it works
 
 The extension draws the video and the captions together on a canvas, then streams that canvas to your browser's built-in Picture-in-Picture window.
@@ -29,6 +20,18 @@ The extension draws the video and the captions together on a canvas, then stream
 
 > [!WARNING]
 > If Document Picture-in-Picture isn't supported, no captions are found, or an error occurs, your browser's native Picture-in-Picture opens instead, without captions.
+
+## How to use
+
+Open a video, then press **`Alt`** + **`Shift`** + **`P`** (or use the *Caption pip* **button** in the upper right corner).
+
+If the captions are not found, press **`Alt`** + **`Shift`** + **`S`** (or use the *Pick caption* **button**) then click the caption text.
+
+> [!NOTE]
+> If the buttons cover a control of the video player, right click them and choose **Hide buttons**. They stay hidden until your cursor leaves the upper right corner of the video, then show up again on hover.
+
+> [!TIP]
+> In the Document Picture-in-Picture window, click the *Caption size* **button** to scale the captions however you like (50% to 250%). Your chosen size is remembered for next time.
 
 ## Release History
 
@@ -40,6 +43,6 @@ Released under the [MIT License](LICENSE.txt).
 
 ## About
 
-Caption Pip is an independent project. Does not record your screen, collect or sell your data.
+Caption Pip is an independent project. It does not record your screen, collect or sell your data.
 
 Free. Open-source. For users by users. No donations sought.
