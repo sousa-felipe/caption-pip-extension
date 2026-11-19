@@ -185,13 +185,13 @@
     /* Center row */
     const ctrl = (s.ctrl = create("div", "cpip-controls"));
     const center = create("div", "cpip-center");
-    const backBtn = makeButton("cpip-skip", CPIP.ICONS.BACK10, "Back 10 seconds");
+    const backBtn = makeButton("cpip-skip", CPIP.ICONS.BACK10, "Rewind 10 seconds");
     const playBtn = makeButton("", CPIP.ICONS.PLAY, "Play", "cpip-play");
     const fwdBtn = makeButton("cpip-skip", CPIP.ICONS.FWD10, "Forward 10 seconds");
     center.append(backBtn, playBtn, fwdBtn);
 
     /* Slider */
-    const slider = (onPick) => {
+    const slider = (onPick, gap = 5) => {
       const root = create("div", "", "cpip-slider");
       const inner = create("div", "", "cpip-track");
       const fill = create("div", "", "cpip-fill");
@@ -201,8 +201,8 @@
       root.append(inner);
       const set = (frac) => {
         const perc = CPIP.clamp(frac, 0, 1) * 100;
-        fill.style.width = `max(0px, calc(${perc}% - 5px))`;
-        rest.style.left = `min(100%, calc(${perc}% + 5px))`;
+        fill.style.width = gap ? `max(0px, calc(${perc}% - ${gap}px))` : `${perc}%`;
+        rest.style.left = gap ? `min(100%, calc(${perc}% + ${gap}px))` : `${perc}%`;
         handle.style.left = perc + "%";
       };
       const at = (e) => {
@@ -227,8 +227,8 @@
 
     /* Bottom bar */
     const bottom = create("div", "cpip-bottom");
-    const prevBtn = makeButton("", CPIP.ICONS.PREV, "Previous", "cpip-prev");
-    const nextBtn = makeButton("", CPIP.ICONS.NEXT, "Next", "cpip-next");
+    const prevBtn = makeButton("", CPIP.ICONS.PREV, "Previous track", "cpip-prev");
+    const nextBtn = makeButton("", CPIP.ICONS.NEXT, "Next track", "cpip-next");
     const progress = slider((frac) => {
       const dur = video.duration;
       if (Number.isFinite(dur) && dur > 0) video.currentTime = frac * dur;
@@ -249,7 +249,7 @@
 
     /* Caption size panel */
     const panel = create("div", "cpip-panel");
-    const size = slider((frac) => setScale(0.5 + frac * 2, true));
+    const size = slider((frac) => setScale(0.5 + frac * 2, true), 0);
     const pct = create("span", "", "cpip-pct");
     panel.append(size.root, pct);
     wrap.appendChild(panel);

@@ -477,7 +477,7 @@ html[data-cpip-pip] body {
   display: none;
   align-items: center;
   gap: 12px;
-  padding: 10px 20px;
+  padding: 5px 16px;
   border-radius: 12px;
   background: #1f1f1f;
   color: #e3e3e3;
@@ -487,6 +487,12 @@ html[data-cpip-pip] body {
   flex: none;
   width: 150px;
   height: 28px;
+}
+#cpip-wrap #cpip-panel .cpip-handle {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
 }
 #cpip-wrap .cpip-pct {
   flex: none;
