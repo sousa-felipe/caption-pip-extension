@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Caption Pip",
   "homepage_url": "https://github.com/sousa-felipe/caption-pip-extension",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Watch video with captions using Caption Pip",
   "minimum_chrome_version": "111",
   "icons": {
