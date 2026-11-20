@@ -41,7 +41,7 @@
   };
 
   /* Pick where to attach elements */
-  function mount() {
+  function overlay() {
     const fullscreen = document.fullscreenElement;
     return fullscreen && fullscreen.tagName !== "VIDEO" ? fullscreen : document.documentElement;
   }
@@ -130,12 +130,10 @@
     );
   }
 
-  /* Pick playing video, then biggest */
+  /* Pick video under pointer or best one */
   function bestVideo() {
     return [...videos].sort((videoA, videoB) => (videoB.paused ? 0 : 1e9) + area(videoB) - ((videoA.paused ? 0 : 1e9) + area(videoA)))[0] || null;
   }
-
-  /* Pick video under pointer or best one */
   const targetVideo = () => (hoverVideo && hoverVideo.isConnected && videos.includes(hoverVideo) ? hoverVideo : bestVideo());
 
   /* Create span with text */
@@ -196,33 +194,40 @@
   let toastPopup = null;
   let toastTimer = null;
 
-  /* Keep messages centered on player */
+  /* Stick overlays to the player */
   const pinned = new Map();
   let pinRaf = 0;
 
-  function placePinned(overlay, video) {
-    const box = video.getBoundingClientRect();
-    const container = mount();
+  /* Get position inside the overlay */
+  function toOverlay(x, y) {
+    const container = overlay();
     const base = container === document.documentElement ? { left: -scrollX, top: -scrollY } : container.getBoundingClientRect();
-    overlay.style.left = box.left + box.width / 2 - base.left + "px";
-    overlay.style.top = box.top + box.height / 2 - base.top + "px";
+    return { left: x - base.left + "px", top: y - base.top + "px" };
+  }
+
+  function placeCentered(el, video) {
+    const box = video.getBoundingClientRect();
+    Object.assign(el.style, toOverlay(box.left + box.width / 2, box.top + box.height / 2));
   }
 
   function pinLoop() {
     pinRaf = 0;
-    for (const [overlay, video] of pinned) {
-      if (!overlay.isConnected || !video.isConnected) pinned.delete(overlay);
-      else placePinned(overlay, video);
+    for (const [el, { video, place }] of pinned) {
+      if (!el.isConnected || !video.isConnected) pinned.delete(el);
+      else place(el, video);
     }
     if (pinned.size) pinRaf = requestAnimationFrame(pinLoop);
   }
 
-  function centerOnPlayer(overlay) {
-    const video = targetVideo();
-    if (!video) return;
-    pinned.set(overlay, video);
-    placePinned(overlay, video);
+  function pin(el, video, place) {
+    pinned.set(el, { video, place });
+    place(el, video);
     if (!pinRaf) pinRaf = requestAnimationFrame(pinLoop);
+  }
+
+  function centerOnPlayer(el) {
+    const video = targetVideo();
+    if (video) pin(el, video, placeCentered);
   }
 
   /* Toasts */
@@ -231,7 +236,7 @@
       toastPopup = document.createElement("div");
       toastPopup.id = "cpip-toast";
     }
-    if (!toastPopup.isConnected) mount().appendChild(toastPopup);
+    if (!toastPopup.isConnected) overlay().appendChild(toastPopup);
     centerOnPlayer(toastPopup);
     toastPopup.replaceChildren(...(who ? [span(who, "cpip-who"), span(msg)] : [span(msg)]));
     toastPopup.classList.add("cpip-show");
@@ -253,7 +258,7 @@
     }
   }
 
-  /* Tell parent frame about videos */
+  /* Report video state to parent frame */
   let sent = "";
   function announce() {
     if (window.top === window) return;
@@ -416,7 +421,7 @@
     menu.appendChild(span("", "cpip-sep"));
     addItem("Close");
     menu.addEventListener("contextmenu", (e) => e.preventDefault());
-    mount().appendChild(menu);
+    overlay().appendChild(menu);
     const menuBox = menu.getBoundingClientRect();
     const pipBox = pipBtn.getBoundingClientRect();
     menu.style.left = clamp(pipBox.right - menuBox.width, 0, innerWidth - menuBox.width) + "px";
@@ -437,7 +442,7 @@
       pickBtn.setAttribute("aria-label", `Pick caption (${keysLabel(KEYS_PICK)})`);
       setTip(pickBtn, "Pick caption", KEYS_PICK);
     }
-    const container = mount();
+    const container = overlay();
     if (pipBtn.parentNode !== container) container.appendChild(pipBtn);
     if (pickBtn.parentNode !== container) container.appendChild(pickBtn);
   }
@@ -455,16 +460,18 @@
     setTip(pipBtn, label, KEYS_PIP);
   }
 
-  function placeButtons(video) {
+  function placeButtons(_, video) {
     const box = video.getBoundingClientRect();
-    const top = clamp(box.top, 0, innerHeight) + 10 + "px";
-    const right = clamp(box.right, 0, innerWidth) - 10;
-    pipBtn.style.top = pickBtn.style.top = top;
-    pipBtn.style.left = right - 49 + "px";
-    pickBtn.style.left = right - 49 - 43 + "px";
+    const top = box.top + 10;
+    const right = box.right - 10;
+    Object.assign(pipBtn.style, toOverlay(right - 49, top));
+    Object.assign(pickBtn.style, toOverlay(right - 49 - 43, top));
   }
 
-  const hideButtons = () => [pipBtn, pickBtn].forEach((btn) => btn && btn.classList.remove("cpip-show"));
+  const hideButtons = () => {
+    pinned.delete(pipBtn);
+    [pipBtn, pickBtn].forEach((btn) => btn && btn.classList.remove("cpip-show"));
+  };
 
   /* Dimensions */
   const HOTZONE_W = 240;
@@ -473,9 +480,7 @@
   /* Check hot zone, top right of video */
   function inHotzone(el, x, y) {
     const box = el.getBoundingClientRect();
-    const top = clamp(box.top, 0, innerHeight);
-    const right = clamp(box.right, 0, innerWidth);
-    return x >= right - HOTZONE_W && x <= right && y >= top && y <= top + HOTZONE_H;
+    return x >= box.right - HOTZONE_W && x <= box.right && y >= box.top && y <= box.top + HOTZONE_H;
   }
 
   /* Keep buttons while the menu is open */
@@ -497,7 +502,7 @@
       if (btnsHidden) return;
       ensureButtons();
       updateButton();
-      placeButtons(video || frame);
+      pin(pipBtn, video || frame, placeButtons);
       [pipBtn, pickBtn].forEach((btn) => btn.classList.add("cpip-show"));
     },
     { capture: true, passive: true }
@@ -628,7 +633,7 @@
     hint = document.createElement("div");
     hint.id = "cpip-hint";
     hint.append(span("Click the caption text while it is on screen"), span("Esc", "cpip-key"), span("Cancel"), span("Del", "cpip-key"), span("Reset"));
-    mount().append(highlight, hint);
+    overlay().append(highlight, hint);
     centerOnPlayer(hint);
     window.addEventListener("mousemove", onPickMove, true);
     PICK_EVENTS.forEach((type) => window.addEventListener(type, pickHandler(type), true));

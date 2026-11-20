@@ -10,7 +10,7 @@
 #cpip-button,
 #cpip-pick {
   all: initial;
-  position: fixed;
+  position: absolute;
   z-index: 2147483646;
   width: 28px;
   height: 36px;
