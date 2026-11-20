@@ -35,10 +35,15 @@
   /* Things that match the words above but are not captions */
   const BAD_TAG = "button,a,input,select,textarea,[role='button'],[role='menu'],[role='menuitem'],[role='dialog'],[role='listbox'],[role='slider'],[role='tab']";
   const BAD_CLASS = "[class*='control' i],[class*='menu' i],[class*='setting' i],[class*='tooltip' i],[class*='btn' i],[class*='button' i],[class*='popup' i],[class*='toast' i],[class*='title' i]:not([class*='subtitle' i]),[class*='episode' i],[class*='track-select' i]";
+  const BAD_AREA = "[data-a-target^='player-info' i],[data-a-target*='channel' i],[data-a-target*='stream-info' i],.top-bar,[class*='top-bar' i],[class*='metadata' i]";
+  const BAD_CHILD = "a,button,img,svg,picture,input";
   const TIME = /^\d{1,2}:\d{2}(:\d{2})?(\s*\/\s*\d{1,2}:\d{2}(:\d{2})?)?$/;
 
   function blocked(el, root, video) {
-    if (el.closest(BAD_TAG)) return true;
+    if (el.closest(BAD_TAG) || el.querySelector(BAD_CHILD)) return true;
+    /* Only inside the player, never a wrapper around the video */
+    const area = el.closest(BAD_AREA);
+    if (area && (!root || root.contains(area)) && !(video && area.contains(video))) return true;
     let node = el;
     for (let i = 0; node && i < 3 && node !== root; i++, node = node.parentElement) {
       if (video && node.contains(video)) break;
