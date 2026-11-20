@@ -235,6 +235,31 @@
     sync();
   }
 
+  /* Cover page video with a message like the browser's own PiP */
+  function showPlaying(s, video) {
+    if (!video.parentNode) return;
+    const cover = document.createElement("div");
+    cover.className = "cpip-playing";
+    const msg = document.createElement("span");
+    msg.textContent = "Playing in caption pip";
+    cover.appendChild(msg);
+    const place = () => {
+      cover.style.left = video.offsetLeft + "px";
+      cover.style.top = video.offsetTop + "px";
+      cover.style.width = video.offsetWidth + "px";
+      cover.style.height = video.offsetHeight + "px";
+    };
+    video.after(cover);
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(video);
+    if (video.parentElement) observer.observe(video.parentElement);
+    s.undo.push(() => {
+      observer.disconnect();
+      cover.remove();
+    });
+  }
+
   const exitIf = (video) => document.pictureInPictureElement === video && document.exitPictureInPicture().catch(() => {});
 
   /* Open plain PiP without captions */
@@ -312,6 +337,11 @@
       stop(s);
       return startNative(video);
     }
+
+    /* Hide page video while it plays in PiP */
+    video.classList.add("cpip-src");
+    s.undo.push(() => video.classList.remove("cpip-src"));
+    showPlaying(s, video);
 
     startTicker(s);
     sizeCanvas(s);

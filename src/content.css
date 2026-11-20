@@ -203,6 +203,35 @@ video.cpip-out {
   z-index: -1 !important;
 }
 
+/* Avoid page video playing */
+video.cpip-src {
+  opacity: 0 !important;
+}
+/* Recreate Chromium default Picture-in-Picture message */
+.cpip-playing {
+  position: absolute !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 32px 64px !important;
+  background: #000 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+}
+.cpip-playing span {
+  display: block !important;
+  font: 400 24px/normal Arial, sans-serif !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  text-align: left !important;
+  letter-spacing: normal !important;
+  white-space: normal !important;
+  animation: cpip-fade-in 0.7s ease-in-out both !important;
+}
+@keyframes cpip-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Caption source picker */
 #cpip-hl {
   position: fixed;
@@ -255,7 +284,7 @@ video.cpip-out {
 /* Dim name before message */
 #cpip-toast .cpip-who { opacity: 0.7; }
 
-/* Recreate Chromium default PiP */
+/* Recreate Chromium default Picture-in-Picture window */
 html[data-cpip-pip],
 html[data-cpip-pip] body {
   margin: 0;
